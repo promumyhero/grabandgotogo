@@ -1,0 +1,107 @@
+// Prisma schema for FoodMerchant Pricing & Margin Engine
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceChannel {
+  GRABFOOD
+  GOFOOD
+}
+
+enum DiscountType {
+  PERCENT
+  NOMINAL
+}
+
+model Merchant {
+  id           String               @id @default(cuid())
+  name         String
+  email        String?              @unique
+  phone        String?
+  workspaces   Workspace[]
+  transactions PaymentTransaction[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@map("merchants")
+}
+
+model Workspace {
+  id                   String           @id @default(cuid())
+  merchantId           String
+  merchant             Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  channel              WorkspaceChannel @default(GRABFOOD)
+  name                 String
+  defaultCommissionPct Float            @default(20.0)
+  defaultBoosterPct    Float            @default(14.0)
+  defaultDiscountPct   Float            @default(30.0)
+  roundingRule         String           @default("CEIL_500") // EXACT, CEIL_100, CEIL_500, CEIL_1000
+  menuItems            MenuItem[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@unique([merchantId, channel])
+  @@index([merchantId, channel])
+  @@map("workspaces")
+}
+
+model MenuItem {
+  id                    String             @id @default(cuid())
+  workspaceId           String
+  workspace             Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                  String
+  category              String             @default("Makanan Utama")
+  targetOfflinePrice    Int
+  displayPrice          Int
+  discountType          DiscountType       @default(PERCENT)
+  discountValue         Float              @default(30.0)
+  commissionPct         Float              @default(20.0)
+  boosterPct            Float              @default(14.0)
+  isBoosterActive       Boolean            @default(true)
+  notes                 String?
+  sortOrder             Int                @default(0)
+  audits                CalculationAudit[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([workspaceId, category])
+  @@index([workspaceId, sortOrder])
+  @@map("menu_items")
+}
+
+model CalculationAudit {
+  id           String    @id @default(cuid())
+  menuItemId   String
+  menuItem     MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  displayPrice Int
+  netPayout    Int
+  variance     Int
+  isLoss       Boolean
+  executedAt   DateTime  @default(now())
+
+  @@index([menuItemId, executedAt])
+  @@map("calculation_audits")
+}
+
+model PaymentTransaction {
+  id            String   @id @default(cuid())
+  externalId    String   @unique // Idempotency key from QRIS provider (e.g. Midtrans / Xendit / Gopay)
+  merchantId    String
+  merchant      Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  amount        Int
+  status        String   // PENDING, SETTLED, EXPIRED, FAILED
+  paymentMethod String   @default("QRIS")
+  rawPayload    Json?
+  settledAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([merchantId, status])
+  @@index([externalId])
+  @@map("payment_transactions")
+}
