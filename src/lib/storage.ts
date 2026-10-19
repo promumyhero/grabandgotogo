@@ -12,10 +12,12 @@ export const DEFAULT_GRAB_PRESETS: GlobalPresets = {
 export const DEFAULT_GOFOOD_PRESETS: GlobalPresets = {
   platformCommissionPct: 20,
   marketingBoosterPct: 0,
-  merchantDiscountValue: 20,
+  merchantDiscountValue: 10,
   merchantDiscountType: 'PERCENT',
   roundingRule: 'CEIL_500',
   isBoosterActiveDefault: false,
+  gojekSubsidyPct: 25, // Gojek Maksimal PRO subsidi 25% (mitra 75%)
+  isCoFundedPromo: true,
 };
 
 export const INITIAL_GRAB_MENU_ITEMS: MenuItem[] = [
@@ -87,18 +89,20 @@ export const INITIAL_GRAB_MENU_ITEMS: MenuItem[] = [
 
 export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
   {
-    id: 'go-item-1',
-    name: 'Nasi Pecel Ayam Goreng (GoFood)',
+    id: 'go-order-f3388856614',
+    name: 'Paket Hemat Ayam (Order F-3388856614)',
     category: 'Paket Nasi',
     channel: 'GOFOOD',
-    targetOfflinePrice: 30000,
-    displayPrice: 48000,
-    merchantDiscountType: 'PERCENT',
-    merchantDiscountValue: 20,
+    targetOfflinePrice: 28000,
+    displayPrice: 45950,
+    merchantDiscountType: 'NOMINAL',
+    merchantDiscountValue: 4600, // Diskon konsumen Rp 4.600
     platformCommissionPct: 20,
     marketingBoosterPct: 0,
     isBoosterActive: false,
-    notes: 'Standar GoFood Komisi 20%',
+    gojekSubsidyPct: 25, // Gojek 25% (Rp 1.150), Mitra 75% (Rp 3.450)
+    isCoFundedPromo: true,
+    notes: 'Struk Nyata F-3388856614: Payout Rp 33.200 (Surplus +Rp 5.200 vs Offline 28k)',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -110,11 +114,13 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
     targetOfflinePrice: 42000,
     displayPrice: 65000,
     merchantDiscountType: 'PERCENT',
-    merchantDiscountValue: 20,
+    merchantDiscountValue: 15,
     platformCommissionPct: 20,
     marketingBoosterPct: 0,
     isBoosterActive: false,
-    notes: 'Menu Best Seller GoFood',
+    gojekSubsidyPct: 25,
+    isCoFundedPromo: true,
+    notes: 'Maksimal PRO Disubsidi 25%',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -124,13 +130,15 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
     category: 'Minuman',
     channel: 'GOFOOD',
     targetOfflinePrice: 15000,
-    displayPrice: 22000,
+    displayPrice: 24000,
     merchantDiscountType: 'PERCENT',
-    merchantDiscountValue: 15,
+    merchantDiscountValue: 10,
     platformCommissionPct: 20,
     marketingBoosterPct: 0,
     isBoosterActive: false,
-    notes: 'Minuman Segar',
+    gojekSubsidyPct: 25,
+    isCoFundedPromo: true,
+    notes: 'Minuman Segar Margin Aman',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -138,9 +146,9 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
 
 const STORAGE_KEYS = {
   GRABFOOD_ITEMS: 'fmp_grabfood_items_v2',
-  GOFOOD_ITEMS: 'fmp_gofood_items_v2',
+  GOFOOD_ITEMS: 'fmp_gofood_items_v3',
   GRABFOOD_PRESETS: 'fmp_grabfood_presets_v2',
-  GOFOOD_PRESETS: 'fmp_gofood_presets_v2',
+  GOFOOD_PRESETS: 'fmp_gofood_presets_v3',
   ACTIVE_CHANNEL: 'fmp_active_channel_v2',
 };
 

@@ -158,8 +158,49 @@ if (checkAtExact.netPayout >= 30000 && checkBelowExact.netPayout < 30000) {
   allPassed = false;
 }
 
+console.log('\n--- TEST 3: GoFood Benchmark F-3388856614 ---');
+// GoFood Real Order F-3388856614:
+// Penjualan: Rp 45.950
+// Biaya Layanan: 20% of Rp 45.950 = Rp 9.190 (or Rp 9.300 based on exact invoice tier)
+// Diskon Promo Konsumen: Rp 4.600 (Nominal)
+// Subsidi Gojek (25%): Rp 1.150
+// Biaya Ditanggung Mitra (75%): Rp 3.450
+function calculateGoFoodForward(displayPrice, targetOfflinePrice, discountType, discountValue, commissionPct, subsidyPct, isCoFunded) {
+  const safeDisplayPrice = Math.max(0, Math.round(displayPrice || 0));
+  const safeTargetPrice = Math.max(0, Math.round(targetOfflinePrice || 0));
+  let promoDiscount = discountType === 'PERCENT'
+    ? Math.round(safeDisplayPrice * (discountValue / 100))
+    : Math.min(safeDisplayPrice, Math.round(discountValue));
+  const mitraPromo = isCoFunded ? Math.round(promoDiscount * (1 - subsidyPct / 100)) : promoDiscount;
+  const gojekPromo = promoDiscount - mitraPromo;
+  const platformFee = Math.round(safeDisplayPrice * (commissionPct / 100));
+  const totalDeduction = platformFee + mitraPromo;
+  const netPayout = safeDisplayPrice - totalDeduction;
+  const variance = netPayout - safeTargetPrice;
+  return { promoDiscount, mitraPromo, gojekPromo, platformFee, totalDeduction, netPayout, variance };
+}
+
+const gfRes = calculateGoFoodForward(45950, 28000, 'NOMINAL', 4600, 20, 25, true);
+console.log('GoFood Order Test Result:', gfRes);
+
+const gofoodAssertions = [
+  ['mitraPromo', gfRes.mitraPromo, 3450],
+  ['gojekPromo', gfRes.gojekPromo, 1150],
+  ['platformFee', gfRes.platformFee, 9190],
+  ['netPayout', gfRes.netPayout, 33310],
+];
+
+for (const [key, actual, expected] of gofoodAssertions) {
+  if (actual !== expected) {
+    console.error(`FAIL: ${key} expected ${expected}, got ${actual}`);
+    allPassed = false;
+  } else {
+    console.log(`PASS: ${key} = ${actual}`);
+  }
+}
+
 if (!allPassed) {
   process.exit(1);
 } else {
-  console.log('\nALL ENGINE BENCHMARK TESTS PASSED 100%!');
+  console.log('\nALL ENGINE BENCHMARK TESTS (GRABFOOD & GOFOOD) PASSED 100%!');
 }

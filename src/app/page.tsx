@@ -1,6 +1,13 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+  useTransition,
+} from 'react';
+import dynamic from 'next/dynamic';
 import {
   GlobalPresets,
   MenuItem,
@@ -25,13 +32,29 @@ import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { KpiSummaryCards } from '@/components/KpiSummaryCards';
 import { GlobalPresetBar } from '@/components/GlobalPresetBar';
 import { PricingTable } from '@/components/PricingTable';
-import { GrabReceiptModal } from '@/components/GrabReceiptModal';
-import { AddMenuModal } from '@/components/AddMenuModal';
+import { DashboardSkeleton } from '@/components/DashboardSkeleton';
 import {
   UtensilsCrossed,
   ShieldCheck,
   CheckCircle2,
+  Undo2,
 } from 'lucide-react';
+
+// Lazy loaded modals for code splitting and instant bundle load
+const GrabReceiptModal = dynamic(
+  () => import('@/components/GrabReceiptModal').then((mod) => mod.GrabReceiptModal),
+  { ssr: false }
+);
+
+const GoFoodReceiptModal = dynamic(
+  () => import('@/components/GoFoodReceiptModal').then((mod) => mod.GoFoodReceiptModal),
+  { ssr: false }
+);
+
+const AddMenuModal = dynamic(
+  () => import('@/components/AddMenuModal').then((mod) => mod.AddMenuModal),
+  { ssr: false }
+);
 
 const subscribeNoop = () => () => {};
 
@@ -42,6 +65,7 @@ export default function PricingEnginePage() {
     () => false
   );
 
+  const [isPending, startTransition] = useTransition();
   const [channel, setChannel] = useState<WorkspaceChannel>(getStoredActiveChannel);
   const [items, setItems] = useState<MenuItem[]>(() => loadMenuItems(getStoredActiveChannel()));
   const [presets, setPresets] = useState<GlobalPresets>(() => loadPresets(getStoredActiveChannel()));
@@ -51,26 +75,44 @@ export default function PricingEnginePage() {
   const [selectedReceiptItem, setSelectedReceiptItem] = useState<MenuItem | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
+  // Micro-interaction Highlight & Undo states
+  const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
+  const [lastDeletedItem, setLastDeletedItem] = useState<MenuItem | null>(null);
+
   // Sync state
   const [isSyncingDb, setIsSyncingDb] = useState(false);
   const [dbSyncStatus, setDbSyncStatus] = useState<
     'idle' | 'success' | 'fallback' | 'error'
   >('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastCanUndo, setToastCanUndo] = useState(false);
 
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  const triggerHighlight = useCallback((id: string) => {
+    setHighlightedItemId(id);
+    setTimeout(() => {
+      setHighlightedItemId((prev) => (prev === id ? null : prev));
+    }, 2200);
   }, []);
 
-  // Handle Channel Change
+  const showToast = useCallback((msg: string, allowUndo: boolean = false) => {
+    setToastMessage(msg);
+    setToastCanUndo(allowUndo);
+    setTimeout(() => {
+      setToastMessage(null);
+      setToastCanUndo(false);
+    }, 4000);
+  }, []);
+
+  // Handle Channel Change with smooth transition
   const handleChannelChange = (newChannel: WorkspaceChannel) => {
-    setChannel(newChannel);
-    setStoredActiveChannel(newChannel);
-    const loadedItems = loadMenuItems(newChannel);
-    const loadedPresets = loadPresets(newChannel);
-    setItems(loadedItems);
-    setPresets(loadedPresets);
+    startTransition(() => {
+      setChannel(newChannel);
+      setStoredActiveChannel(newChannel);
+      const loadedItems = loadMenuItems(newChannel);
+      const loadedPresets = loadPresets(newChannel);
+      setItems(loadedItems);
+      setPresets(loadedPresets);
+    });
     showToast(`Beralih ke workspace ${newChannel === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}`);
   };
 
@@ -84,24 +126,42 @@ export default function PricingEnginePage() {
         saveMenuItems(channel, next);
         return next;
       });
+      triggerHighlight(id);
     },
-    [channel]
+    [channel, triggerHighlight]
   );
 
-  // Delete item
+  // Delete item with Undo capability
   const handleDeleteItem = useCallback(
     (id: string) => {
+      const target = items.find((it) => it.id === id);
+      if (target) {
+        setLastDeletedItem(target);
+      }
       setItems((prev) => {
         const next = prev.filter((it) => it.id !== id);
         saveMenuItems(channel, next);
         return next;
       });
-      showToast('Menu berhasil dihapus');
+      showToast(`Menu "${target?.name || ''}" berhasil dihapus`, true);
     },
-    [channel, showToast]
+    [items, channel, showToast]
   );
 
-  // Duplicate item
+  // Undo delete action
+  const handleUndoDelete = useCallback(() => {
+    if (!lastDeletedItem) return;
+    setItems((prev) => {
+      const next = [lastDeletedItem, ...prev];
+      saveMenuItems(channel, next);
+      return next;
+    });
+    triggerHighlight(lastDeletedItem.id);
+    setLastDeletedItem(null);
+    showToast(`Menu "${lastDeletedItem.name}" berhasil dipulihkan`);
+  }, [lastDeletedItem, channel, triggerHighlight, showToast]);
+
+  // Duplicate item with highlight animation
   const handleDuplicateItem = useCallback(
     (item: MenuItem) => {
       const duplicated: MenuItem = {
@@ -116,12 +176,13 @@ export default function PricingEnginePage() {
         saveMenuItems(channel, next);
         return next;
       });
+      triggerHighlight(duplicated.id);
       showToast(`Menu "${duplicated.name}" berhasil diduplikasi`);
     },
-    [channel, showToast]
+    [channel, triggerHighlight, showToast]
   );
 
-  // Add new item
+  // Add new item with highlight animation
   const handleAddMenuItem = useCallback(
     (newItem: MenuItem) => {
       setItems((prev) => {
@@ -129,9 +190,10 @@ export default function PricingEnginePage() {
         saveMenuItems(channel, next);
         return next;
       });
+      triggerHighlight(newItem.id);
       showToast(`Menu "${newItem.name}" berhasil ditambahkan`);
     },
-    [channel, showToast]
+    [channel, triggerHighlight, showToast]
   );
 
   // Update Presets
@@ -165,9 +227,10 @@ export default function PricingEnginePage() {
   const handleApplyIdealPrice = useCallback(
     (id: string, newPrice: number) => {
       handleUpdateItem(id, { displayPrice: newPrice });
+      triggerHighlight(id);
       showToast(`Harga ideal ${newPrice.toLocaleString('id-ID')} berhasil diterapkan`);
     },
-    [handleUpdateItem, showToast]
+    [handleUpdateItem, triggerHighlight, showToast]
   );
 
   // Apply Ideal Price to ALL items
@@ -181,7 +244,10 @@ export default function PricingEnginePage() {
           item.platformCommissionPct,
           item.marketingBoosterPct,
           item.isBoosterActive,
-          presets.roundingRule
+          presets.roundingRule,
+          channel,
+          item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+          item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true
         );
         return {
           ...item,
@@ -193,7 +259,7 @@ export default function PricingEnginePage() {
       return next;
     });
     showToast('Semua menu kini menggunakan Harga Ideal (Dijamin bebas boncos)!');
-  }, [channel, presets.roundingRule, showToast]);
+  }, [channel, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]);
 
   // Reset Defaults
   const handleResetDefaults = useCallback(() => {
@@ -287,11 +353,14 @@ export default function PricingEnginePage() {
         marketingBoosterPct: item.marketingBoosterPct,
         isBoosterActive: item.isBoosterActive,
         roundingRule: presets.roundingRule,
+        channel,
+        gojekSubsidyPct: item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+        isCoFundedPromo: item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true,
       });
       map.set(item.id, calc);
     });
     return map;
-  }, [items, presets.roundingRule]);
+  }, [items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, channel]);
 
   // Count boncos
   const boncosCount = useMemo(() => {
@@ -303,64 +372,57 @@ export default function PricingEnginePage() {
     return count;
   }, [items, calculations]);
 
+  // Instant Shimmer Skeleton screen before client hydration (Zero Layout Shift)
   if (!isClient) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex items-center gap-2 text-slate-500 font-medium text-sm">
-          <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span>Memuat FoodMerchant Engine...</span>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const isGrab = channel === 'GRABFOOD';
 
   return (
-    <main className="max-w-360 mx-auto px-4 sm:px-6 py-8 bg-slate-50 min-h-screen text-slate-900">
-      <div className="space-y-6">
+    <main className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 min-h-screen text-slate-900">
+      <div className="space-y-5 sm:space-y-6">
         {/* Top Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-xs ${
-                  isGrab ? 'bg-[#00B14F]' : 'bg-[#EE2737]'
-                }`}
-              >
-                <UtensilsCrossed className="w-5 h-5" />
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200/80">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-xs transition-colors duration-200 ${
+                isGrab
+                  ? 'bg-[#00B14F] shadow-emerald-500/20'
+                  : 'bg-[#EE2737] shadow-red-500/20'
+              }`}
+            >
+              <UtensilsCrossed className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-950">
+                  FoodMerchant Pricing & Margin Engine
+                </h1>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 hidden sm:inline">
+                  v2.0 Precision
+                </span>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                    FoodMerchant Pricing & Margin Engine
-                  </h1>
-                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                    v2.0 Exact Math
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Kalkulator presisi biaya komisi delivery, diskon merchant, dan anti-boncos
-                  settlement
-                </p>
-              </div>
+              <p className="text-xs text-slate-500 font-normal mt-0.5 leading-normal">
+                Kalkulator presisi biaya platform, diskon mitra, dan margin bersih terkalibrasi Order GF-957
+              </p>
             </div>
           </div>
 
           {/* Quick Benchmark Reference Badge */}
-          <div className="flex items-center gap-2">
-            <div className="text-right hidden md:block">
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="text-right hidden lg:block">
               <span className="text-[10px] text-slate-400 font-mono block">
-                BENCHMARK KALIBRASI
+                KALIBRASI RIIL
               </span>
-              <span className="text-xs font-semibold text-slate-700">
-                Settlement Order GF-957 (Rp 29.753)
+              <span className="text-xs font-semibold text-slate-800 tabular-nums">
+                Order GF-957 (Rp 29.753)
               </span>
             </div>
             <button
               type="button"
               onClick={() => handleOpenReceiptModal()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
             >
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
               <span>Verifikasi Struk</span>
@@ -396,7 +458,7 @@ export default function PricingEnginePage() {
           dbSyncStatus={dbSyncStatus}
         />
 
-        {/* 4. High-Density Responsive Table */}
+        {/* 4. High-Density Responsive Table with Dual View & Highlight */}
         <PricingTable
           channel={channel}
           items={items}
@@ -408,44 +470,77 @@ export default function PricingEnginePage() {
           onOpenReceiptModal={handleOpenReceiptModal}
           onOpenAddModal={() => setIsAddModalOpen(true)}
           onExportCsv={handleExportCsv}
+          highlightedItemId={highlightedItemId}
+          isLoading={isPending}
         />
 
         {/* Footer info note */}
-        <footer className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
+        <footer className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
           <div>
             FoodMerchant Engine • Dilengkapi PostgreSQL Schema + Row-Level Locking QRIS Idempotency
           </div>
           <div className="flex items-center gap-3">
-            <span>Formula terkalibrasi ke Order GrabFood GF-957</span>
+            <span>
+              {isGrab
+                ? 'Formula terkalibrasi ke Order GrabFood GF-957'
+                : 'Formula terkalibrasi ke Order GoFood F-3388856614 & Maksimal PRO'}
+            </span>
             <span>•</span>
             <span className="font-mono text-slate-500">IDR Integer Math</span>
           </div>
         </footer>
       </div>
 
-      {/* GrabReceiptModal (GF-957 Mobile View) */}
-      <GrabReceiptModal
-        isOpen={isReceiptModalOpen}
-        onClose={() => setIsReceiptModalOpen(false)}
-        selectedItem={selectedReceiptItem}
-        roundingRule={presets.roundingRule}
-        onApplyIdealPrice={handleApplyIdealPrice}
-      />
+      {/* Lazy Loaded GrabReceiptModal (GF-957 Mobile View) */}
+      {isReceiptModalOpen && isGrab && (
+        <GrabReceiptModal
+          isOpen={isReceiptModalOpen}
+          onClose={() => setIsReceiptModalOpen(false)}
+          selectedItem={selectedReceiptItem}
+          roundingRule={presets.roundingRule}
+          onApplyIdealPrice={handleApplyIdealPrice}
+        />
+      )}
 
-      {/* AddMenuModal */}
-      <AddMenuModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        channel={channel}
-        presets={presets}
-        onAddMenuItem={handleAddMenuItem}
-      />
+      {/* Lazy Loaded GoFoodReceiptModal (F-3388856614 Mobile View) */}
+      {isReceiptModalOpen && !isGrab && (
+        <GoFoodReceiptModal
+          isOpen={isReceiptModalOpen}
+          onClose={() => setIsReceiptModalOpen(false)}
+          selectedItem={selectedReceiptItem}
+          roundingRule={presets.roundingRule}
+          onApplyIdealPrice={handleApplyIdealPrice}
+        />
+      )}
 
-      {/* Toast Notification */}
+      {/* Lazy Loaded AddMenuModal */}
+      {isAddModalOpen && (
+        <AddMenuModal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          channel={channel}
+          presets={presets}
+          onAddMenuItem={handleAddMenuItem}
+        />
+      )}
+
+      {/* Toast Notification with Undo Capability */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg border border-slate-800 animate-in slide-in-from-bottom-2 duration-150">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl border border-slate-800 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+          {toastCanUndo && lastDeletedItem && (
+            <button
+              type="button"
+              onClick={handleUndoDelete}
+              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+            >
+              <Undo2 className="w-3 h-3" />
+              <span>Urungkan</span>
+            </button>
+          )}
         </div>
       )}
     </main>

@@ -16,6 +16,8 @@ export interface MenuItem {
   platformCommissionPct: number;
   marketingBoosterPct: number;
   isBoosterActive: boolean;
+  gojekSubsidyPct?: number; // e.g. 25% or 30% from Maksimal PRO
+  isCoFundedPromo?: boolean; // true if participating in Gojek co-funded promo
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +32,9 @@ export interface CalculationInput {
   marketingBoosterPct: number;
   isBoosterActive: boolean;
   roundingRule?: RoundingRule;
+  channel?: WorkspaceChannel;
+  gojekSubsidyPct?: number;
+  isCoFundedPromo?: boolean;
 }
 
 export interface CalculationResult {
@@ -44,6 +49,10 @@ export interface CalculationResult {
   isLoss: boolean; // variance < 0
   effectiveCommissionRatePct: number; // totalGrabCut / subtotalAfterDiscount * 100
   effectiveMerchantMarginPct: number; // netPayout / displayPrice * 100
+
+  // GoFood Specific Fields
+  mitraPromoShare?: number; // Biaya yang ditanggung mitra usaha
+  gojekPromoShare?: number; // Nilai promo yang disubsidi Gojek
 
   // Mode B Reverse Outputs
   recommendedDisplayPriceExact: number;
@@ -60,6 +69,8 @@ export interface GlobalPresets {
   merchantDiscountType: DiscountType;
   roundingRule: RoundingRule;
   isBoosterActiveDefault: boolean;
+  gojekSubsidyPct?: number; // 25% default from Gojek Maksimal PRO
+  isCoFundedPromo?: boolean;
 }
 
 export interface ReceiptLineItem {
@@ -89,3 +100,20 @@ export interface GrabReceiptData {
   targetOfflinePrice: number;
   variance: number;
 }
+
+export interface GoFoodReceiptData {
+  orderNumber: string;
+  orderTimestamp: string;
+  menuItemName: string;
+  penjualan: number; // e.g. Rp 45.950
+  biayaLayananDelivery: number; // e.g. -Rp 9.300 (20%)
+  biayaDitanggungMitra: number; // e.g. -Rp 3.450
+  disubsidiGojekPct: number; // e.g. 25%
+  totalDiskonKonsumen: number; // e.g. Rp 4.600
+  subsidiGojekAmount: number; // e.g. Rp 1.150
+  totalPendapatanBersih: number; // e.g. Rp 33.200
+  targetOfflinePrice: number; // e.g. Rp 28.000
+  variance: number; // e.g. +Rp 5.200
+  category: string; // 'Gojek Plus'
+}
+

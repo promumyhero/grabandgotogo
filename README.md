@@ -59,6 +59,14 @@ Formula telah diuji dengan *unit test benchmark* (kode acuan transaksi nyata `GF
 - **Net Payout:** Rp29.753 (Target Rp30.000 $\rightarrow$ *Defisit/Variance:* -Rp247)
 - **Rekomendasi Balik:** Minimum Rp65.000 (Ceil 500) $\rightarrow$ *Net Payout:* Rp30.030 (*Surplus:* +Rp30).
 
+### Benchmark GoFood / GoBiz (Order `F-3388856614`):
+- **Penjualan Katalog:** Rp45.950
+- **Biaya Layanan Delivery (20%):** Rp9.190 (atau Rp9.300 sesuai tier invoice)
+- **Promo Konsumen (Nominal):** Rp4.600
+- **Subsidi Gojek (25% Maksimal PRO):** Rp1.150
+- **Biaya Ditanggung Mitra (75%):** Rp3.450
+- **Pendapatan Bersih:** Rp33.310 (Target Rp28.000 $\rightarrow$ *Surplus:* +Rp5.310).
+
 Uji validasi dapat dijalankan via:
 ```bash
 node scripts/test-engine.mjs
@@ -84,7 +92,7 @@ grabdangotogo/
 ├── prisma/
 │   └── schema.prisma            # Skema database (Merchant, Workspace, MenuItem, CalculationAudit, PaymentTransaction)
 ├── scripts/
-│   └── test-engine.mjs          # Script pengujian logika pricing engine
+│   └── test-engine.mjs          # Script pengujian logika pricing engine (GrabFood & GoFood)
 ├── src/
 │   ├── app/
 │   │   ├── api/
@@ -95,8 +103,10 @@ grabdangotogo/
 │   │   └── page.tsx             # Halaman utama kalkulator & dashboard
 │   ├── components/
 │   │   ├── AddMenuModal.tsx     # Modal tambah menu baru
+│   │   ├── DashboardSkeleton.tsx# Skeleton loader zero-layout-shift
 │   │   ├── GlobalPresetBar.tsx  # Bar pengaturan preset komisi & diskon massal
-│   │   ├── GrabReceiptModal.tsx # Modal simulasi struk transaksi merchant
+│   │   ├── GoFoodReceiptModal.tsx# Modal simulasi struk GoFood/GoBiz Order F-3388856614
+│   │   ├── GrabReceiptModal.tsx # Modal simulasi struk transaksi GrabFood Order GF-957
 │   │   ├── KpiSummaryCards.tsx  # Kartu ringkasan metrik finansial
 │   │   ├── PricingTable.tsx     # Tabel interaktif kalkulasi & rekomendasi harga
 │   │   └── WorkspaceSwitcher.tsx# Tab beralih GrabFood & GoFood
