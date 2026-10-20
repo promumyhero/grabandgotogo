@@ -104,10 +104,12 @@ grabdangotogo/
 │   ├── components/
 │   │   ├── AddMenuModal.tsx     # Modal tambah menu baru
 │   │   ├── DashboardSkeleton.tsx# Skeleton loader zero-layout-shift
+│   │   ├── EditMenuModal.tsx    # Modal edit rincian menu dengan konfirmasi final & simulasi
 │   │   ├── GlobalPresetBar.tsx  # Bar pengaturan preset komisi & diskon massal
 │   │   ├── GoFoodReceiptModal.tsx# Modal simulasi struk GoFood/GoBiz Order F-3388856614
 │   │   ├── GrabReceiptModal.tsx # Modal simulasi struk transaksi GrabFood Order GF-957
 │   │   ├── KpiSummaryCards.tsx  # Kartu ringkasan metrik finansial
+│   │   ├── ManageCategoriesModal.tsx # Modal kelola, rename, dan migrasi kategori menu
 │   │   ├── PricingTable.tsx     # Tabel interaktif kalkulasi & rekomendasi harga
 │   │   └── WorkspaceSwitcher.tsx# Tab beralih GrabFood & GoFood
 │   ├── lib/

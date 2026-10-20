@@ -144,13 +144,65 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
   },
 ];
 
+export const DEFAULT_GRAB_CATEGORIES: string[] = [
+  'Paket Nasi',
+  'Menu Spesial',
+  'Minuman',
+  'Camilan / Snack',
+];
+
+export const DEFAULT_GOFOOD_CATEGORIES: string[] = [
+  'Paket Nasi',
+  'Menu Spesial',
+  'Minuman',
+  'Camilan / Snack',
+  'GoFood Best Seller',
+];
+
 const STORAGE_KEYS = {
   GRABFOOD_ITEMS: 'fmp_grabfood_items_v2',
   GOFOOD_ITEMS: 'fmp_gofood_items_v3',
   GRABFOOD_PRESETS: 'fmp_grabfood_presets_v2',
   GOFOOD_PRESETS: 'fmp_gofood_presets_v3',
+  GRABFOOD_CATEGORIES: 'fmp_grabfood_categories_v1',
+  GOFOOD_CATEGORIES: 'fmp_gofood_categories_v1',
   ACTIVE_CHANNEL: 'fmp_active_channel_v2',
 };
+
+export function loadCategories(channel: WorkspaceChannel): string[] {
+  const fallback =
+    channel === 'GOFOOD' ? DEFAULT_GOFOOD_CATEGORIES : DEFAULT_GRAB_CATEGORIES;
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const key =
+      channel === 'GOFOOD'
+        ? STORAGE_KEYS.GOFOOD_CATEGORIES
+        : STORAGE_KEYS.GRABFOOD_CATEGORIES;
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      saveCategories(channel, fallback);
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : fallback;
+  } catch (e) {
+    console.error('Failed to load categories from localStorage:', e);
+    return fallback;
+  }
+}
+
+export function saveCategories(channel: WorkspaceChannel, categories: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const key =
+      channel === 'GOFOOD'
+        ? STORAGE_KEYS.GOFOOD_CATEGORIES
+        : STORAGE_KEYS.GRABFOOD_CATEGORIES;
+    localStorage.setItem(key, JSON.stringify(categories));
+  } catch (e) {
+    console.error('Failed to save categories to localStorage:', e);
+  }
+}
 
 export function getStoredActiveChannel(): WorkspaceChannel {
   if (typeof window === 'undefined') return 'GRABFOOD';
@@ -247,14 +299,18 @@ export function savePresets(channel: WorkspaceChannel, presets: GlobalPresets): 
 export function resetWorkspaceToDefaults(channel: WorkspaceChannel): {
   items: MenuItem[];
   presets: GlobalPresets;
+  categories: string[];
 } {
   const items =
     channel === 'GOFOOD' ? [...INITIAL_GOFOOD_MENU_ITEMS] : [...INITIAL_GRAB_MENU_ITEMS];
   const presets =
     channel === 'GOFOOD' ? { ...DEFAULT_GOFOOD_PRESETS } : { ...DEFAULT_GRAB_PRESETS };
+  const categories =
+    channel === 'GOFOOD' ? [...DEFAULT_GOFOOD_CATEGORIES] : [...DEFAULT_GRAB_CATEGORIES];
 
   saveMenuItems(channel, items);
   savePresets(channel, presets);
+  saveCategories(channel, categories);
 
-  return { items, presets };
+  return { items, presets, categories };
 }

@@ -12,14 +12,16 @@ import {
   calculateRecommendedPrice,
   formatRupiah,
 } from '@/lib/pricing-engine';
-import { X, Plus, Sparkles } from 'lucide-react';
+import { X, Plus, Sparkles, FolderPlus } from 'lucide-react';
 
 interface AddMenuModalProps {
   isOpen: boolean;
   onClose: () => void;
   channel: WorkspaceChannel;
   presets: GlobalPresets;
+  categories?: string[];
   onAddMenuItem: (newItem: MenuItem) => void;
+  onAddNewCategory?: (newCategory: string) => void;
 }
 
 export function AddMenuModal({
@@ -27,12 +29,16 @@ export function AddMenuModal({
   onClose,
   channel,
   presets,
+  categories = ['Makanan Utama', 'Paket Nasi', 'Menu Spesial', 'Minuman', 'Camilan / Snack'],
   onAddMenuItem,
+  onAddNewCategory,
 }: AddMenuModalProps) {
   const isGrab = channel === 'GRABFOOD';
 
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Makanan Utama');
+  const [category, setCategory] = useState(categories[0] || 'Makanan Utama');
+  const [isAddingNewCat, setIsAddingNewCat] = useState(false);
+  const [newCatInput, setNewCatInput] = useState('');
   const [targetOfflinePrice, setTargetOfflinePrice] = useState<number>(30000);
   const [displayPrice, setDisplayPrice] = useState<number>(60000);
   const [discountType, setDiscountType] = useState<DiscountType>(presets.merchantDiscountType);
@@ -78,10 +84,18 @@ export function AddMenuModal({
     e.preventDefault();
     if (!name.trim()) return;
 
+    let finalCat = category;
+    if (isAddingNewCat && newCatInput.trim()) {
+      finalCat = newCatInput.trim();
+      if (onAddNewCategory) {
+        onAddNewCategory(finalCat);
+      }
+    }
+
     const newItem: MenuItem = {
       id: `${channel.toLowerCase()}-${Date.now()}`,
       name: name.trim(),
-      category: category.trim() || 'Makanan Utama',
+      category: finalCat.trim() || 'Makanan Utama',
       channel,
       targetOfflinePrice: Math.round(targetOfflinePrice),
       displayPrice: Math.round(displayPrice),
@@ -101,6 +115,8 @@ export function AddMenuModal({
     onClose();
     setName('');
     setNotes('');
+    setIsAddingNewCat(false);
+    setNewCatInput('');
   };
 
   return (
@@ -146,20 +162,45 @@ export function AddMenuModal({
 
             {/* Category */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Kategori Menu
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
-              >
-                <option value="Makanan Utama">Makanan Utama</option>
-                <option value="Paket Nasi">Paket Nasi</option>
-                <option value="Menu Spesial">Menu Spesial</option>
-                <option value="Minuman">Minuman</option>
-                <option value="Camilan / Snack">Camilan / Snack</option>
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Kategori Menu
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingNewCat(!isAddingNewCat)}
+                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer"
+                >
+                  <FolderPlus className="w-3 h-3" />
+                  <span>{isAddingNewCat ? 'Pilih Kategori' : '+ Baru'}</span>
+                </button>
+              </div>
+
+              {isAddingNewCat ? (
+                <input
+                  type="text"
+                  placeholder="Ketik kategori baru..."
+                  value={newCatInput}
+                  onChange={(e) => setNewCatInput(e.target.value)}
+                  autoFocus
+                  className="w-full text-xs font-semibold px-3 py-2.5 border border-emerald-500 rounded-xl focus:outline-none bg-white text-slate-900"
+                />
+              ) : (
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                  {!categories.includes(category) && category && (
+                    <option value={category}>{category}</option>
+                  )}
+                </select>
+              )}
             </div>
 
             {/* Target Offline Price */}

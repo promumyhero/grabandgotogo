@@ -19,18 +19,23 @@ import {
   CheckCircle2,
   LayoutGrid,
   List,
+  Pencil,
+  Tags,
 } from 'lucide-react';
 
 interface PricingTableProps {
   channel: WorkspaceChannel;
   items: MenuItem[];
   calculations: Map<string, CalculationResult>;
+  categories: string[];
   onUpdateItem: (id: string, updates: Partial<MenuItem>) => void;
   onDeleteItem: (id: string) => void;
   onDuplicateItem: (item: MenuItem) => void;
   onApplyIdealPrice: (id: string, price: number) => void;
   onOpenReceiptModal: (item: MenuItem) => void;
   onOpenAddModal: () => void;
+  onOpenEditModal: (item: MenuItem) => void;
+  onOpenCategoryModal: () => void;
   onExportCsv: () => void;
   highlightedItemId?: string | null;
   isLoading?: boolean;
@@ -42,12 +47,15 @@ export function PricingTable({
   channel,
   items,
   calculations,
+  categories,
   onUpdateItem,
   onDeleteItem,
   onDuplicateItem,
   onApplyIdealPrice,
   onOpenReceiptModal,
   onOpenAddModal,
+  onOpenEditModal,
+  onOpenCategoryModal,
   onExportCsv,
   highlightedItemId,
   isLoading,
@@ -58,14 +66,14 @@ export function PricingTable({
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
-  // Categories list
-  const categories = useMemo(() => {
-    const set = new Set<string>();
+  // Categories list combining managed categories + item categories
+  const allCategories = useMemo(() => {
+    const set = new Set<string>(categories);
     items.forEach((it) => {
       if (it.category) set.add(it.category);
     });
     return Array.from(set);
-  }, [items]);
+  }, [categories, items]);
 
   // Counts for filter pills
   const counts = useMemo(() => {
@@ -162,21 +170,32 @@ export function PricingTable({
             </button>
           </div>
 
-          {/* Category Dropdown */}
-          {categories.length > 0 && (
+          {/* Category Dropdown & Manage Categories Button */}
+          <div className="flex items-center gap-1.5">
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="text-xs font-medium bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+              className="text-xs font-semibold bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
             >
               <option value="ALL">Semua Kategori</option>
-              {categories.map((cat) => (
+              {allCategories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
               ))}
             </select>
-          )}
+
+            <button
+              type="button"
+              id="btn-manage-categories"
+              onClick={onOpenCategoryModal}
+              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 rounded-xl transition-colors cursor-pointer"
+              title="Kelola, tambah, atau ubah nama kategori menu"
+            >
+              <Tags className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Kategori</span>
+            </button>
+          </div>
         </div>
 
         {/* Right: Search Bar & Actions */}
@@ -373,6 +392,14 @@ export function PricingTable({
                     )}
 
                     <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onOpenEditModal(item)}
+                        className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                        title="Edit rincian menu ini"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => onOpenReceiptModal(item)}
@@ -694,12 +721,30 @@ export function PricingTable({
                     {/* 10. Actions */}
                     <td className="px-4 py-3.5 whitespace-nowrap border-b border-slate-100 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        {/* Edit Menu */}
+                        <button
+                          type="button"
+                          onClick={() => onOpenEditModal(item)}
+                          className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                          title="Edit rincian & formula menu ini"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+
                         {/* Simulation Receipt Modal */}
                         <button
                           type="button"
                           onClick={() => onOpenReceiptModal(item)}
-                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                          title="Lihat simulasi struk settlement GrabMerchant"
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            isGrab
+                              ? 'text-emerald-700 hover:bg-emerald-50'
+                              : 'text-rose-700 hover:bg-rose-50'
+                          }`}
+                          title={
+                            isGrab
+                              ? 'Lihat simulasi struk settlement GrabMerchant'
+                              : 'Lihat simulasi struk settlement GoFood'
+                          }
                         >
                           <Receipt className="w-4 h-4" />
                         </button>

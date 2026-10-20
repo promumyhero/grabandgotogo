@@ -23,6 +23,8 @@ import {
   saveMenuItems,
   loadPresets,
   savePresets,
+  loadCategories,
+  saveCategories,
   getStoredActiveChannel,
   setStoredActiveChannel,
   resetWorkspaceToDefaults,
@@ -56,6 +58,16 @@ const AddMenuModal = dynamic(
   { ssr: false }
 );
 
+const EditMenuModal = dynamic(
+  () => import('@/components/EditMenuModal').then((mod) => mod.EditMenuModal),
+  { ssr: false }
+);
+
+const ManageCategoriesModal = dynamic(
+  () => import('@/components/ManageCategoriesModal').then((mod) => mod.ManageCategoriesModal),
+  { ssr: false }
+);
+
 const subscribeNoop = () => () => {};
 
 export default function PricingEnginePage() {
@@ -69,15 +81,21 @@ export default function PricingEnginePage() {
   const [channel, setChannel] = useState<WorkspaceChannel>(getStoredActiveChannel);
   const [items, setItems] = useState<MenuItem[]>(() => loadMenuItems(getStoredActiveChannel()));
   const [presets, setPresets] = useState<GlobalPresets>(() => loadPresets(getStoredActiveChannel()));
+  const [categories, setCategories] = useState<string[]>(() => loadCategories(getStoredActiveChannel()));
 
   // Modals state
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [selectedReceiptItem, setSelectedReceiptItem] = useState<MenuItem | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedEditItem, setSelectedEditItem] = useState<MenuItem | null>(null);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
   // Micro-interaction Highlight & Undo states
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   const [lastDeletedItem, setLastDeletedItem] = useState<MenuItem | null>(null);
+  const [lastEditedItemBefore, setLastEditedItemBefore] = useState<MenuItem | null>(null);
+  const [undoType, setUndoType] = useState<'delete' | 'edit' | null>(null);
 
   // Sync state
   const [isSyncingDb, setIsSyncingDb] = useState(false);
@@ -100,7 +118,7 @@ export default function PricingEnginePage() {
     setTimeout(() => {
       setToastMessage(null);
       setToastCanUndo(false);
-    }, 4000);
+    }, 4500);
   }, []);
 
   // Handle Channel Change with smooth transition
@@ -110,8 +128,10 @@ export default function PricingEnginePage() {
       setStoredActiveChannel(newChannel);
       const loadedItems = loadMenuItems(newChannel);
       const loadedPresets = loadPresets(newChannel);
+      const loadedCategories = loadCategories(newChannel);
       setItems(loadedItems);
       setPresets(loadedPresets);
+      setCategories(loadedCategories);
     });
     showToast(`Beralih ke workspace ${newChannel === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}`);
   };
@@ -137,6 +157,7 @@ export default function PricingEnginePage() {
       const target = items.find((it) => it.id === id);
       if (target) {
         setLastDeletedItem(target);
+        setUndoType('delete');
       }
       setItems((prev) => {
         const next = prev.filter((it) => it.id !== id);
@@ -148,18 +169,84 @@ export default function PricingEnginePage() {
     [items, channel, showToast]
   );
 
-  // Undo delete action
-  const handleUndoDelete = useCallback(() => {
-    if (!lastDeletedItem) return;
-    setItems((prev) => {
-      const next = [lastDeletedItem, ...prev];
-      saveMenuItems(channel, next);
-      return next;
-    });
-    triggerHighlight(lastDeletedItem.id);
-    setLastDeletedItem(null);
-    showToast(`Menu "${lastDeletedItem.name}" berhasil dipulihkan`);
-  }, [lastDeletedItem, channel, triggerHighlight, showToast]);
+  // Open Edit Modal
+  const handleOpenEditModal = useCallback((item: MenuItem) => {
+    setSelectedEditItem(item);
+    setIsEditModalOpen(true);
+  }, []);
+
+  // Save Edited Item
+  const handleSaveEditedItem = useCallback(
+    (updatedItem: MenuItem) => {
+      const original = items.find((it) => it.id === updatedItem.id);
+      if (original) {
+        setLastEditedItemBefore(original);
+        setUndoType('edit');
+      }
+
+      setItems((prev) => {
+        const next = prev.map((it) => (it.id === updatedItem.id ? updatedItem : it));
+        saveMenuItems(channel, next);
+        return next;
+      });
+
+      triggerHighlight(updatedItem.id);
+      showToast(`Menu "${updatedItem.name}" berhasil diperbarui (Final)!`, true);
+    },
+    [channel, items, triggerHighlight, showToast]
+  );
+
+  // Undo delete or edit action
+  const handleUndo = useCallback(() => {
+    if (undoType === 'delete' && lastDeletedItem) {
+      setItems((prev) => {
+        const next = [lastDeletedItem, ...prev];
+        saveMenuItems(channel, next);
+        return next;
+      });
+      triggerHighlight(lastDeletedItem.id);
+      setLastDeletedItem(null);
+      setUndoType(null);
+      showToast(`Menu "${lastDeletedItem.name}" berhasil dipulihkan`);
+    } else if (undoType === 'edit' && lastEditedItemBefore) {
+      setItems((prev) => {
+        const next = prev.map((it) =>
+          it.id === lastEditedItemBefore.id ? lastEditedItemBefore : it
+        );
+        saveMenuItems(channel, next);
+        return next;
+      });
+      triggerHighlight(lastEditedItemBefore.id);
+      showToast(`Perubahan menu "${lastEditedItemBefore.name}" telah dibatalkan.`);
+      setLastEditedItemBefore(null);
+      setUndoType(null);
+    }
+  }, [undoType, lastDeletedItem, lastEditedItemBefore, channel, triggerHighlight, showToast]);
+
+  // Category management handlers
+  const handleUpdateCategories = useCallback(
+    (newCategories: string[], updatedItems?: MenuItem[]) => {
+      setCategories(newCategories);
+      saveCategories(channel, newCategories);
+      if (updatedItems) {
+        setItems(updatedItems);
+        saveMenuItems(channel, updatedItems);
+      }
+    },
+    [channel]
+  );
+
+  const handleAddNewCategory = useCallback(
+    (newCat: string) => {
+      setCategories((prev) => {
+        if (prev.includes(newCat)) return prev;
+        const next = [...prev, newCat];
+        saveCategories(channel, next);
+        return next;
+      });
+    },
+    [channel]
+  );
 
   // Duplicate item with highlight animation
   const handleDuplicateItem = useCallback(
@@ -266,6 +353,7 @@ export default function PricingEnginePage() {
     const res = resetWorkspaceToDefaults(channel);
     setItems(res.items);
     setPresets(res.presets);
+    setCategories(res.categories);
     showToast('Workspace berhasil di-reset ke nilai default awal.');
   }, [channel, showToast]);
 
@@ -463,12 +551,15 @@ export default function PricingEnginePage() {
           channel={channel}
           items={items}
           calculations={calculations}
+          categories={categories}
           onUpdateItem={handleUpdateItem}
           onDeleteItem={handleDeleteItem}
           onDuplicateItem={handleDuplicateItem}
           onApplyIdealPrice={handleApplyIdealPrice}
           onOpenReceiptModal={handleOpenReceiptModal}
           onOpenAddModal={() => setIsAddModalOpen(true)}
+          onOpenEditModal={handleOpenEditModal}
+          onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
           onExportCsv={handleExportCsv}
           highlightedItemId={highlightedItemId}
           isLoading={isPending}
@@ -520,7 +611,40 @@ export default function PricingEnginePage() {
           onClose={() => setIsAddModalOpen(false)}
           channel={channel}
           presets={presets}
+          categories={categories}
           onAddMenuItem={handleAddMenuItem}
+          onAddNewCategory={handleAddNewCategory}
+        />
+      )}
+
+      {/* Lazy Loaded EditMenuModal */}
+      {isEditModalOpen && selectedEditItem && (
+        <EditMenuModal
+          key={selectedEditItem.id}
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setSelectedEditItem(null);
+          }}
+          item={selectedEditItem}
+          channel={channel}
+          presets={presets}
+          categories={categories}
+          onSaveItem={handleSaveEditedItem}
+          onAddNewCategory={handleAddNewCategory}
+        />
+      )}
+
+      {/* Lazy Loaded ManageCategoriesModal */}
+      {isCategoryModalOpen && (
+        <ManageCategoriesModal
+          isOpen={isCategoryModalOpen}
+          onClose={() => setIsCategoryModalOpen(false)}
+          categories={categories}
+          channel={channel}
+          items={items}
+          onUpdateCategories={handleUpdateCategories}
+          onShowToast={(msg) => showToast(msg, false)}
         />
       )}
 
@@ -531,10 +655,10 @@ export default function PricingEnginePage() {
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
-          {toastCanUndo && lastDeletedItem && (
+          {toastCanUndo && (lastDeletedItem || lastEditedItemBefore) && (
             <button
               type="button"
-              onClick={handleUndoDelete}
+              onClick={handleUndo}
               className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
             >
               <Undo2 className="w-3 h-3" />
