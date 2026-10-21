@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   DiscountType,
   GlobalPresets,
@@ -12,7 +12,16 @@ import {
   calculateRecommendedPrice,
   formatRupiah,
 } from '@/lib/pricing-engine';
-import { X, Plus, Sparkles, FolderPlus } from 'lucide-react';
+import {
+  FoodSuggestion,
+  getFoodSuggestions,
+  inferCategoryFromMenuName,
+} from '@/lib/food-catalog';
+import {
+  sanitizeNumericInput,
+  handleNumberInputFocus,
+} from '@/lib/input-utils';
+import { X, Plus, Sparkles, FolderPlus, Utensils, Check } from 'lucide-react';
 
 interface AddMenuModalProps {
   isOpen: boolean;
@@ -20,6 +29,7 @@ interface AddMenuModalProps {
   channel: WorkspaceChannel;
   presets: GlobalPresets;
   categories?: string[];
+  existingItems?: MenuItem[];
   onAddMenuItem: (newItem: MenuItem) => void;
   onAddNewCategory?: (newCategory: string) => void;
 }
@@ -30,6 +40,7 @@ export function AddMenuModal({
   channel,
   presets,
   categories = ['Makanan Utama', 'Paket Nasi', 'Menu Spesial', 'Minuman', 'Camilan / Snack'],
+  existingItems = [],
   onAddMenuItem,
   onAddNewCategory,
 }: AddMenuModalProps) {
@@ -48,7 +59,27 @@ export function AddMenuModal({
   );
   const [notes, setNotes] = useState('');
 
+  // Auto-fill & auto-suggest states
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [inferredBadge, setInferredBadge] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   if (!isOpen) return null;
+
+  // Real-time suggestions based on current typed name
+  const suggestions = getFoodSuggestions(name, existingItems, categories, 6);
 
   const forwardCalc = calculateForward(
     displayPrice,
@@ -78,6 +109,68 @@ export function AddMenuModal({
 
   const handleApplyRecommended = () => {
     setDisplayPrice(recommendation.roundedRecommendedPrice);
+  };
+
+  // Handle typing in Menu Name with real-time category linking
+  const handleNameChange = (val: string) => {
+    setName(val);
+    setShowSuggestions(true);
+    setSelectedIndex(-1);
+
+    // Auto-infer category from name
+    const detected = inferCategoryFromMenuName(val, categories);
+    if (detected) {
+      setInferredBadge(detected);
+      if (!isAddingNewCat) {
+        setCategory(detected);
+      }
+    } else {
+      setInferredBadge(null);
+    }
+  };
+
+  // Select a suggestion from the autofill list
+  const handleSelectSuggestion = (sug: FoodSuggestion) => {
+    setName(sug.name);
+    setCategory(sug.category);
+    setInferredBadge(sug.category);
+    setShowSuggestions(false);
+
+    // Update targetOfflinePrice if still at default or user wants benchmark
+    if (targetOfflinePrice === 30000 || targetOfflinePrice === 0) {
+      setTargetOfflinePrice(sug.suggestedOfflinePrice);
+      const rec = calculateRecommendedPrice(
+        sug.suggestedOfflinePrice,
+        discountType,
+        discountValue,
+        presets.platformCommissionPct,
+        presets.marketingBoosterPct,
+        isBoosterActive,
+        presets.roundingRule,
+        channel,
+        presets.gojekSubsidyPct ?? 25,
+        presets.isCoFundedPromo ?? true
+      );
+      setDisplayPrice(rec.roundedRecommendedPrice);
+    }
+  };
+
+  // Keyboard navigation for suggestions
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault();
+      handleSelectSuggestion(suggestions[selectedIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -117,6 +210,8 @@ export function AddMenuModal({
     setNotes('');
     setIsAddingNewCat(false);
     setNewCatInput('');
+    setShowSuggestions(false);
+    setInferredBadge(null);
   };
 
   return (
@@ -130,7 +225,7 @@ export function AddMenuModal({
               <span>Tambah Menu ({isGrab ? 'GrabFood' : 'GoFood'})</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5 font-normal">
-              Simulasi margin langsung sebelum mendaftarkan menu
+              Dilengkapi autofill cerdas yang otomatis terhubung ke kategori menu
             </p>
           </div>
           <button
@@ -145,19 +240,91 @@ export function AddMenuModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Menu Name */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Nama Menu Makanan / Minuman <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="Contoh: Bebek Goreng Kremes Sambal Korek"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full text-sm font-semibold px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all bg-slate-50/50 focus:bg-white"
-              />
+            {/* Menu Name with Smart Autofill & Category Link */}
+            <div className="sm:col-span-2 relative" ref={dropdownRef}>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Nama Menu Makanan / Minuman <span className="text-rose-500">*</span>
+                </label>
+                {inferredBadge && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/80 animate-in fade-in">
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>Kategori terhubung: <strong>{inferredBadge}</strong></span>
+                  </span>
+                )}
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  placeholder="Ketik nama menu, misal: Nasi Rames, Ayam Geprek, Es Teh..."
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full text-sm font-semibold px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all bg-slate-50/50 focus:bg-white"
+                />
+                {name && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setName('');
+                      setInferredBadge(null);
+                    }}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Floating Autocomplete Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                    <span>Rekomendasi Menu & Kategori</span>
+                    <span className="text-[10px] text-slate-400">Pilih untuk auto-fill</span>
+                  </div>
+                  <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                    {suggestions.map((sug, idx) => (
+                      <button
+                        key={`${sug.name}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(sug)}
+                        className={`w-full px-3.5 py-2 text-left flex items-center justify-between gap-2 hover:bg-emerald-50/70 transition-colors cursor-pointer ${
+                          selectedIndex === idx ? 'bg-emerald-50 ring-1 ring-emerald-400 ring-inset' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                            <Utensils className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="truncate">
+                            <div className="text-xs font-bold text-slate-800 truncate">
+                              {sug.name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Estimasi modal: {formatRupiah(sug.suggestedOfflinePrice)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                            {sug.category}
+                          </span>
+                          {sug.source === 'existing' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 text-blue-700">
+                              Toko Anda
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Category */}
@@ -188,7 +355,10 @@ export function AddMenuModal({
               ) : (
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={(e) => {
+                    setCategory(e.target.value);
+                    setInferredBadge(e.target.value);
+                  }}
                   className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
                 >
                   {categories.map((cat) => (
@@ -217,25 +387,31 @@ export function AddMenuModal({
                   min="0"
                   step="500"
                   required
-                  value={targetOfflinePrice || ''}
-                  onChange={(e) => setTargetOfflinePrice(parseFloat(e.target.value) || 0)}
-                  className="w-full text-sm font-bold pl-9 pr-3 py-2 border border-slate-200 rounded-xl tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-right bg-slate-50/50 focus:bg-white"
+                  placeholder="0"
+                  value={targetOfflinePrice === 0 ? '' : targetOfflinePrice}
+                  onFocus={handleNumberInputFocus}
+                  onChange={(e) => {
+                    const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                    e.target.value = stringValue;
+                    setTargetOfflinePrice(numericValue);
+                  }}
+                  className="w-full text-xs font-bold pl-9 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
                 />
               </div>
             </div>
 
-            {/* Display Price with Ideal Recommender button */}
+            {/* Display Price with Recommend Action */}
             <div className="sm:col-span-2">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-700">
-                  Harga Tampilan Aplikasi (Rp)
+                <label className="block text-xs font-semibold text-slate-700">
+                  Harga Jual di Aplikasi ({isGrab ? 'GrabFood' : 'GoFood'})
                 </label>
                 <button
                   type="button"
                   onClick={handleApplyRecommended}
-                  className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <Sparkles className="w-3 h-3 text-amber-500" />
                   <span>
                     Pakai Rekomendasi ({formatRupiah(recommendation.roundedRecommendedPrice)})
                   </span>
@@ -250,106 +426,126 @@ export function AddMenuModal({
                   min="0"
                   step="500"
                   required
-                  value={displayPrice || ''}
-                  onChange={(e) => setDisplayPrice(parseFloat(e.target.value) || 0)}
-                  className="w-full text-sm font-bold pl-9 pr-3 py-2 border border-slate-200 rounded-xl tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-right bg-slate-50/50 focus:bg-white"
+                  placeholder="0"
+                  value={displayPrice === 0 ? '' : displayPrice}
+                  onFocus={handleNumberInputFocus}
+                  onChange={(e) => {
+                    const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                    e.target.value = stringValue;
+                    setDisplayPrice(numericValue);
+                  }}
+                  className="w-full text-sm font-bold pl-9 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
                 />
               </div>
             </div>
 
-            {/* Merchant Discount */}
+            {/* Discount Settings */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Diskon Mitra
+                Tipe Diskon Merchant
               </label>
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={discountType}
-                  onChange={(e) => setDiscountType(e.target.value as DiscountType)}
-                  className="text-xs font-semibold px-2 py-2 border border-slate-200 rounded-xl bg-slate-50/80 focus:outline-none cursor-pointer"
-                >
-                  <option value="PERCENT">%</option>
-                  <option value="NOMINAL">Rp</option>
-                </select>
+              <select
+                value={discountType}
+                onChange={(e) => setDiscountType(e.target.value as DiscountType)}
+                className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
+              >
+                <option value="PERCENT">Persentase (%)</option>
+                <option value="NOMINAL">Nominal (Rp)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Nilai Diskon ({discountType === 'PERCENT' ? '%' : 'Rp'})
+              </label>
+              <input
+                type="number"
+                min="0"
+                max={discountType === 'PERCENT' ? 100 : undefined}
+                step={discountType === 'PERCENT' ? 1 : 500}
+                placeholder="0"
+                value={discountValue === 0 ? '' : discountValue}
+                onFocus={handleNumberInputFocus}
+                onChange={(e) => {
+                  const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, {
+                    min: 0,
+                    max: discountType === 'PERCENT' ? 100 : undefined,
+                  });
+                  e.target.value = stringValue;
+                  setDiscountValue(numericValue);
+                }}
+                className="w-full text-xs font-semibold px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
+              />
+            </div>
+
+            {/* Platform Booster (GrabFood Only) */}
+            {isGrab && (
+              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">
+                    Ikut Promo PUAS (Grab Booster 14%)
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Menambah biaya pemasaran platform sebesar +14%
+                  </span>
+                </div>
                 <input
-                  type="number"
-                  min="0"
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
-                  className="w-full text-sm font-bold px-3 py-2 border border-slate-200 rounded-xl tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-right bg-slate-50/50 focus:bg-white"
+                  type="checkbox"
+                  checked={isBoosterActive}
+                  onChange={(e) => setIsBoosterActive(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
                 />
               </div>
-            </div>
+            )}
 
-            {/* Booster Toggle (for GrabFood) */}
-            {isGrab && (
-              <div className="flex flex-col justify-end">
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  PUAS Booster (14%)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setIsBoosterActive(!isBoosterActive)}
-                  className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                    isBoosterActive
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                      : 'bg-slate-50 text-slate-500 border-slate-200'
+            {/* Live Calculation Margin Preview */}
+            <div className="sm:col-span-2 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">Hasil Net Payout:</span>
+                <span className="font-bold text-slate-900 tabular-nums">
+                  {formatRupiah(forwardCalc.netPayout)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">Selisih vs Target:</span>
+                <span
+                  className={`font-bold tabular-nums ${
+                    forwardCalc.variance < 0 ? 'text-rose-600' : 'text-emerald-600'
                   }`}
                 >
-                  <span>Biaya Sukses Pemasaran</span>
-                  <span
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                      isBoosterActive ? 'bg-[#00B14F] text-white' : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {isBoosterActive ? 'AKTIF (14%)' : 'OFF'}
-                  </span>
-                </button>
+                  {formatRupiah(forwardCalc.variance, true)}{' '}
+                  {forwardCalc.variance < 0 ? '(Boncos)' : '(Aman)'}
+                </span>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Real-time Calculation Summary Card */}
-          <div
-            className={`p-4 rounded-xl border text-xs space-y-2 ${
-              forwardCalc.variance < 0
-                ? 'bg-rose-50/70 border-rose-200 text-rose-950'
-                : 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold">
-              <span>Preview Payout Bersih:</span>
-              <span className="text-base font-extrabold tabular-nums">
-                {formatRupiah(forwardCalc.netPayout)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600">
-              <span>Potongan Komisi & Booster:</span>
-              <span className="tabular-nums font-semibold">
-                -{formatRupiah(forwardCalc.totalPlatformDeduction)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between pt-1.5 border-t border-current/10 font-bold">
-              <span>Margin vs Target ({formatRupiah(targetOfflinePrice)}):</span>
-              <span className="tabular-nums">
-                {formatRupiah(forwardCalc.variance, true)}{' '}
-                {forwardCalc.variance < 0 ? '(⚠️ Boncos)' : '(✅ Aman)'}
-              </span>
+            {/* Notes */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Catatan Menu (Opsional)
+              </label>
+              <input
+                type="text"
+                placeholder="Misal: Paket hemat makan siang, Porsi jumbo..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full text-xs font-medium px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 focus:bg-white"
+              />
             </div>
           </div>
 
-          {/* Footer Submit */}
-          <div className="pt-2 flex items-center justify-end gap-2">
+          {/* Form Actions */}
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               Simpan Menu
             </button>

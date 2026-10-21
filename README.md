@@ -128,6 +128,8 @@ grabdangotogo/
 │   │   └── WorkspaceSwitcher.tsx# Tab beralih GrabFood & GoFood
 │   ├── lib/
 │   │   ├── csv-helper.ts        # Helper ekspor data ke file CSV
+│   │   ├── food-catalog.ts      # Katalog rekomendasi menu kuliner Indonesia & inferensi kategori otomatis
+│   │   ├── input-utils.ts       # Sanitasi input angka & pencegahan bug leading zero
 │   │   ├── pricing-engine.ts    # Inti kalkulasi matematika Forward & Reverse
 │   │   ├── prisma.ts            # Client singleton Prisma ORM
 │   │   ├── storage.ts           # State persistence ke LocalStorage

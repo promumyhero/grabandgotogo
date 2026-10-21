@@ -319,12 +319,20 @@ export function GoFoodReceiptModal({
             </span>
           </div>
 
-          {/* Section 4: Kategori */}
+          {/* Section 4: Kategori Pelanggan (Gojek Plus) */}
           <div className="space-y-1.5 text-xs pt-1">
-            <div className="font-bold text-slate-900 text-xs">Kategori</div>
-            <div>
-              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-900 text-xs">Kategori Pelanggan</span>
+              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                Disubsidi Gojek (Rp 0 Beban Toko)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 shrink-0">
                 Gojek Plus
+              </span>
+              <span className="text-[11px] text-slate-500 leading-snug">
+                Pelanggan langganan Gojek Plus. Diskon ongkir & promo eksklusif Plus dibiayai 100% oleh Gojek dan <strong>tidak memotong</strong> pendapatan resto.
               </span>
             </div>
           </div>

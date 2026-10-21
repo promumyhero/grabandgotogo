@@ -10,6 +10,10 @@ import {
   Database,
   Check,
 } from 'lucide-react';
+import {
+  sanitizeNumericInput,
+  handleNumberInputFocus,
+} from '@/lib/input-utils';
 
 interface GlobalPresetBarProps {
   channel: WorkspaceChannel;
@@ -65,10 +69,14 @@ export function GlobalPresetBar({
               min="0"
               max="100"
               step="1"
-              value={presets.platformCommissionPct}
-              onChange={(e) =>
-                updatePreset('platformCommissionPct', parseFloat(e.target.value) || 0)
-              }
+              placeholder="0"
+              value={presets.platformCommissionPct === 0 ? '' : presets.platformCommissionPct}
+              onFocus={handleNumberInputFocus}
+              onChange={(e) => {
+                const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0, max: 100 });
+                e.target.value = stringValue;
+                updatePreset('platformCommissionPct', numericValue);
+              }}
               className="w-10 text-right font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-1 py-0.5 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
             />
             <span className="text-slate-500 font-semibold">%</span>
@@ -83,10 +91,14 @@ export function GlobalPresetBar({
                 min="0"
                 max="100"
                 step="1"
-                value={presets.marketingBoosterPct}
-                onChange={(e) =>
-                  updatePreset('marketingBoosterPct', parseFloat(e.target.value) || 0)
-                }
+                placeholder="0"
+                value={presets.marketingBoosterPct === 0 ? '' : presets.marketingBoosterPct}
+                onFocus={handleNumberInputFocus}
+                onChange={(e) => {
+                  const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0, max: 100 });
+                  e.target.value = stringValue;
+                  updatePreset('marketingBoosterPct', numericValue);
+                }}
                 className="w-10 text-right font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-1 py-0.5 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
               />
               <span className="text-slate-500 font-semibold">%</span>
@@ -123,10 +135,14 @@ export function GlobalPresetBar({
               min="0"
               max="100"
               step="5"
-              value={presets.merchantDiscountValue}
-              onChange={(e) =>
-                updatePreset('merchantDiscountValue', parseFloat(e.target.value) || 0)
-              }
+              placeholder="0"
+              value={presets.merchantDiscountValue === 0 ? '' : presets.merchantDiscountValue}
+              onFocus={handleNumberInputFocus}
+              onChange={(e) => {
+                const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0, max: 100 });
+                e.target.value = stringValue;
+                updatePreset('merchantDiscountValue', numericValue);
+              }}
               className="w-10 text-right font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-1 py-0.5 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
             />
             <span className="text-slate-500 font-semibold">%</span>

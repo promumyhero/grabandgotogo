@@ -218,8 +218,52 @@ for (const [key, actual, expected] of gofoodAssertions2) {
   }
 }
 
+// --- TEST 4: Input Sanitization & Leading Zero Prevention ---
+console.log('\n--- TEST 4: Numeric Input Sanitization (Bug Fix: "020" -> "20") ---');
+function sanitizeNumericInput(rawInput, options) {
+  let cleaned = String(rawInput ?? '').trim();
+  if (/^0+[0-9]/.test(cleaned)) {
+    cleaned = cleaned.replace(/^0+(?=\d)/, '');
+  }
+  if (/^0+$/.test(cleaned)) {
+    cleaned = '0';
+  }
+  const parsed = parseFloat(cleaned);
+  let num = isNaN(parsed) ? (options?.defaultValue ?? 0) : parsed;
+  if (options?.min !== undefined && num < options.min) {
+    num = options.min;
+    cleaned = String(options.min);
+  }
+  if (options?.max !== undefined && num > options.max) {
+    num = options.max;
+    cleaned = String(options.max);
+  }
+  return { cleanedString: cleaned, numericValue: num };
+}
+
+const inputTests = [
+  { input: '020', opts: { min: 0, max: 100 }, expectedStr: '20', expectedNum: 20 },
+  { input: '007', opts: { min: 0 }, expectedStr: '7', expectedNum: 7 },
+  { input: '0', opts: { min: 0 }, expectedStr: '0', expectedNum: 0 },
+  { input: '00', opts: { min: 0 }, expectedStr: '0', expectedNum: 0 },
+  { input: '000', opts: { min: 0 }, expectedStr: '0', expectedNum: 0 },
+  { input: '030000', opts: { min: 0 }, expectedStr: '30000', expectedNum: 30000 },
+  { input: '120', opts: { min: 0, max: 100 }, expectedStr: '100', expectedNum: 100 },
+  { input: '', opts: { min: 0 }, expectedStr: '', expectedNum: 0 },
+];
+
+for (const t of inputTests) {
+  const res = sanitizeNumericInput(t.input, t.opts);
+  if (res.cleanedString !== t.expectedStr || res.numericValue !== t.expectedNum) {
+    console.error(`FAIL input '${t.input}': expected (${t.expectedStr}, ${t.expectedNum}), got (${res.cleanedString}, ${res.numericValue})`);
+    allPassed = false;
+  } else {
+    console.log(`PASS: input '${t.input}' -> string '${res.cleanedString}', num ${res.numericValue}`);
+  }
+}
+
 if (!allPassed) {
   process.exit(1);
 } else {
-  console.log('\nALL ENGINE BENCHMARK TESTS (GRABFOOD & GOFOOD) PASSED 100% WITH DUAL-RECEIPT CALIBRATION!');
+  console.log('\nALL ENGINE BENCHMARK TESTS (GRABFOOD, GOFOOD & INPUT SANITIZATION) PASSED 100%!');
 }

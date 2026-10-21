@@ -1,12 +1,21 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   CalculationResult,
   MenuItem,
   WorkspaceChannel,
 } from '@/types/pricing';
 import { formatRupiah } from '@/lib/pricing-engine';
+import {
+  FoodSuggestion,
+  getFoodSuggestions,
+  inferCategoryFromMenuName,
+} from '@/lib/food-catalog';
+import {
+  sanitizeNumericInput,
+  handleNumberInputFocus,
+} from '@/lib/input-utils';
 import {
   Search,
   Plus,
@@ -21,6 +30,9 @@ import {
   List,
   Pencil,
   Tags,
+  X,
+  Utensils,
+  Check,
 } from 'lucide-react';
 
 interface PricingTableProps {
@@ -66,6 +78,22 @@ export function PricingTable({
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
+  // Search Auto-suggest states
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close search suggestions on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Categories list combining managed categories + item categories
   const allCategories = useMemo(() => {
     const set = new Set<string>(categories);
@@ -74,6 +102,54 @@ export function PricingTable({
     });
     return Array.from(set);
   }, [categories, items]);
+
+  // Food suggestions based on current search input
+  const searchSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return getFoodSuggestions(searchQuery, items, allCategories, 5);
+  }, [searchQuery, items, allCategories]);
+
+  // Detected matching categories from search query
+  const matchedCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return allCategories.filter((cat) => cat.toLowerCase().includes(q));
+  }, [searchQuery, allCategories]);
+
+  // Inferred category from query keywords (e.g. "nasi rames" -> "Paket Nasi")
+  const inferredCategory = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    return inferCategoryFromMenuName(searchQuery, allCategories);
+  }, [searchQuery, allCategories]);
+
+  const handleSelectSearchSuggestion = (sug: FoodSuggestion) => {
+    setSearchQuery(sug.name);
+    setIsSearchFocused(false);
+  };
+
+  const handleSelectCategoryFilter = (catName: string) => {
+    setSelectedCategory(catName);
+    setIsSearchFocused(false);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isSearchFocused || searchSuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSearchSelectedIndex((prev) => (prev < searchSuggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSearchSelectedIndex((prev) => (prev > 0 ? prev - 1 : searchSuggestions.length - 1));
+    } else if (e.key === 'Enter') {
+      if (searchSelectedIndex >= 0 && searchSuggestions[searchSelectedIndex]) {
+        e.preventDefault();
+        handleSelectSearchSuggestion(searchSuggestions[searchSelectedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsSearchFocused(false);
+    }
+  };
 
   // Counts for filter pills
   const counts = useMemo(() => {
@@ -171,7 +247,7 @@ export function PricingTable({
           </div>
 
           {/* Category Dropdown & Manage Categories Button */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
@@ -184,6 +260,18 @@ export function PricingTable({
                 </option>
               ))}
             </select>
+
+            {selectedCategory !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('ALL')}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                title="Hapus filter kategori ini"
+              >
+                <span>{selectedCategory}</span>
+                <X className="w-3 h-3 text-emerald-600" />
+              </button>
+            )}
 
             <button
               type="button"
@@ -200,17 +288,136 @@ export function PricingTable({
 
         {/* Right: Search Bar & Actions */}
         <div className="flex items-center gap-2">
-          {/* Search Box */}
-          <div className="relative flex-1 sm:w-56">
+          {/* Search Box with Autocomplete & Category Linking */}
+          <div className="relative flex-1 sm:w-64" ref={searchDropdownRef}>
             <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
               id="search-input"
-              placeholder="Cari nama menu..."
+              placeholder="Cari menu, contoh: nasi rames..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs font-medium pl-8 pr-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:bg-white transition-all"
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setIsSearchFocused(true);
+                setSearchSelectedIndex(-1);
+              }}
+              onFocus={() => setIsSearchFocused(true)}
+              onKeyDown={handleSearchKeyDown}
+              className="w-full text-xs font-medium pl-8 pr-7 py-2 bg-slate-50 border border-slate-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:bg-white transition-all"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchSelectedIndex(-1);
+                }}
+                className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Hapus pencarian"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Floating Autocomplete Dropdown */}
+            {isSearchFocused && searchQuery.trim().length > 0 && (
+              <div className="absolute right-0 sm:left-0 top-full mt-1.5 z-30 w-72 sm:w-80 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                {/* 1. Category Link Recommendations */}
+                {(inferredCategory || matchedCategories.length > 0) && (
+                  <div className="p-2.5 bg-slate-50 border-b border-slate-100">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                      <span>Kategori Terkait</span>
+                      <span className="text-[9px] text-emerald-600 font-normal">Klik untuk filter</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {inferredCategory && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCategoryFilter(inferredCategory)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                            selectedCategory === inferredCategory
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80'
+                          }`}
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>{inferredCategory}</span>
+                        </button>
+                      )}
+                      {matchedCategories
+                        .filter((cat) => cat !== inferredCategory)
+                        .map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => handleSelectCategoryFilter(cat)}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                              selectedCategory === cat
+                                ? 'bg-slate-800 text-white'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Menu Suggestions */}
+                {searchSuggestions.length > 0 ? (
+                  <div>
+                    <div className="px-3 py-1.5 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                      <span>Rekomendasi Menu</span>
+                      <span className="text-[9px] text-slate-400 normal-case">Pilih untuk isi pencarian</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                      {searchSuggestions.map((sug, idx) => (
+                        <div
+                          key={`${sug.name}-${idx}`}
+                          onClick={() => handleSelectSearchSuggestion(sug)}
+                          className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 hover:bg-emerald-50/70 transition-colors cursor-pointer ${
+                            searchSelectedIndex === idx ? 'bg-emerald-50 ring-1 ring-emerald-400 ring-inset' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                              <Utensils className="w-3 h-3" />
+                            </div>
+                            <div className="truncate">
+                              <div className="text-xs font-bold text-slate-800 truncate">
+                                {sug.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {sug.source === 'existing' ? 'Menu di resto Anda' : 'Katalog F&B Indonesia'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectCategoryFilter(sug.category);
+                              }}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80 hover:bg-emerald-100"
+                              title={`Filter langsung kategori ${sug.category}`}
+                            >
+                              {sug.category}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 text-center text-xs text-slate-400">
+                    Tidak ada menu spesifik di katalog. Menampilkan hasil pencarian teks langsung.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* View Mode Switcher (Grid/Cards vs Table) */}
@@ -355,12 +562,15 @@ export function PricingTable({
                         <input
                           type="number"
                           step="500"
-                          value={item.targetOfflinePrice}
-                          onChange={(e) =>
-                            onUpdateItem(item.id, {
-                              targetOfflinePrice: parseFloat(e.target.value) || 0,
-                            })
-                          }
+                          min="0"
+                          placeholder="0"
+                          value={item.targetOfflinePrice === 0 ? '' : item.targetOfflinePrice}
+                          onFocus={handleNumberInputFocus}
+                          onChange={(e) => {
+                            const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                            e.target.value = stringValue;
+                            onUpdateItem(item.id, { targetOfflinePrice: numericValue });
+                          }}
                           className="w-24 font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         />
                       </div>
@@ -373,12 +583,15 @@ export function PricingTable({
                         <input
                           type="number"
                           step="500"
-                          value={item.displayPrice}
-                          onChange={(e) =>
-                            onUpdateItem(item.id, {
-                              displayPrice: parseFloat(e.target.value) || 0,
-                            })
-                          }
+                          min="0"
+                          placeholder="0"
+                          value={item.displayPrice === 0 ? '' : item.displayPrice}
+                          onFocus={handleNumberInputFocus}
+                          onChange={(e) => {
+                            const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                            e.target.value = stringValue;
+                            onUpdateItem(item.id, { displayPrice: numericValue });
+                          }}
                           className="w-24 font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         />
                       </div>
@@ -592,12 +805,15 @@ export function PricingTable({
                         <input
                           type="number"
                           step="500"
-                          value={item.targetOfflinePrice}
-                          onChange={(e) =>
-                            onUpdateItem(item.id, {
-                              targetOfflinePrice: parseFloat(e.target.value) || 0,
-                            })
-                          }
+                          min="0"
+                          placeholder="0"
+                          value={item.targetOfflinePrice === 0 ? '' : item.targetOfflinePrice}
+                          onFocus={handleNumberInputFocus}
+                          onChange={(e) => {
+                            const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                            e.target.value = stringValue;
+                            onUpdateItem(item.id, { targetOfflinePrice: numericValue });
+                          }}
                           className="w-20 text-right font-bold text-slate-900 bg-transparent hover:bg-slate-100/80 focus:bg-white border border-transparent hover:border-slate-300 focus:border-emerald-500 rounded-lg px-1.5 py-1 tabular-nums focus:outline-none transition-colors"
                         />
                       </div>
@@ -610,12 +826,15 @@ export function PricingTable({
                         <input
                           type="number"
                           step="500"
-                          value={item.displayPrice}
-                          onChange={(e) =>
-                            onUpdateItem(item.id, {
-                              displayPrice: parseFloat(e.target.value) || 0,
-                            })
-                          }
+                          min="0"
+                          placeholder="0"
+                          value={item.displayPrice === 0 ? '' : item.displayPrice}
+                          onFocus={handleNumberInputFocus}
+                          onChange={(e) => {
+                            const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                            e.target.value = stringValue;
+                            onUpdateItem(item.id, { displayPrice: numericValue });
+                          }}
                           className={`w-20 text-right font-bold bg-transparent hover:bg-slate-100/80 focus:bg-white border border-transparent hover:border-slate-300 focus:border-emerald-500 rounded-lg px-1.5 py-1 tabular-nums focus:outline-none transition-colors ${
                             isBoncos ? 'text-rose-700' : 'text-slate-900'
                           }`}
@@ -644,12 +863,18 @@ export function PricingTable({
                         <input
                           type="number"
                           min="0"
-                          value={item.merchantDiscountValue}
-                          onChange={(e) =>
-                            onUpdateItem(item.id, {
-                              merchantDiscountValue: parseFloat(e.target.value) || 0,
-                            })
-                          }
+                          max={item.merchantDiscountType === 'PERCENT' ? 100 : undefined}
+                          placeholder="0"
+                          value={item.merchantDiscountValue === 0 ? '' : item.merchantDiscountValue}
+                          onFocus={handleNumberInputFocus}
+                          onChange={(e) => {
+                            const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, {
+                              min: 0,
+                              max: item.merchantDiscountType === 'PERCENT' ? 100 : undefined,
+                            });
+                            e.target.value = stringValue;
+                            onUpdateItem(item.id, { merchantDiscountValue: numericValue });
+                          }}
                           className="w-16 text-right font-semibold text-slate-800 bg-transparent hover:bg-slate-100/80 focus:bg-white border border-transparent hover:border-slate-300 focus:border-emerald-500 rounded-lg px-1.5 py-1 tabular-nums focus:outline-none transition-colors"
                         />
                       </div>

@@ -644,6 +644,7 @@ export default function PricingEnginePage() {
           channel={channel}
           presets={presets}
           categories={categories}
+          existingItems={items}
           onAddMenuItem={handleAddMenuItem}
           onAddNewCategory={handleAddNewCategory}
         />
@@ -662,6 +663,7 @@ export default function PricingEnginePage() {
           channel={channel}
           presets={presets}
           categories={categories}
+          existingItems={items}
           onSaveItem={handleSaveEditedItem}
           onAddNewCategory={handleAddNewCategory}
         />

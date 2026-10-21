@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   DiscountType,
   GlobalPresets,
@@ -13,6 +13,15 @@ import {
   formatRupiah,
 } from '@/lib/pricing-engine';
 import {
+  FoodSuggestion,
+  getFoodSuggestions,
+  inferCategoryFromMenuName,
+} from '@/lib/food-catalog';
+import {
+  sanitizeNumericInput,
+  handleNumberInputFocus,
+} from '@/lib/input-utils';
+import {
   X,
   Sparkles,
   CheckCircle2,
@@ -22,6 +31,7 @@ import {
   ShieldCheck,
   Check,
   Pencil,
+  Utensils,
 } from 'lucide-react';
 
 interface EditMenuModalProps {
@@ -31,6 +41,7 @@ interface EditMenuModalProps {
   channel: WorkspaceChannel;
   presets: GlobalPresets;
   categories: string[];
+  existingItems?: MenuItem[];
   onSaveItem: (updatedItem: MenuItem) => void;
   onAddNewCategory?: (newCategory: string) => void;
 }
@@ -42,6 +53,7 @@ export function EditMenuModal({
   channel,
   presets,
   categories,
+  existingItems = [],
   onSaveItem,
   onAddNewCategory,
 }: EditMenuModalProps) {
@@ -67,7 +79,27 @@ export function EditMenuModal({
   // Confirmation Pop-up state ("Apakah pengeditan sudah final / fix?")
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
+  // Auto-fill & auto-suggest states
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [inferredBadge, setInferredBadge] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   if (!isOpen || !item) return null;
+
+  // Real-time suggestions based on current typed name
+  const suggestions = getFoodSuggestions(name, existingItems, categories, 6);
 
   // Real-time calculation preview
   const forwardCalc = calculateForward(
@@ -98,6 +130,53 @@ export function EditMenuModal({
 
   const handleApplyRecommended = () => {
     setDisplayPrice(recommendation.roundedRecommendedPrice);
+  };
+
+  // Handle typing in Menu Name with real-time category linking
+  const handleNameChange = (val: string) => {
+    setName(val);
+    setShowSuggestions(true);
+    setSelectedIndex(-1);
+
+    const detected = inferCategoryFromMenuName(val, categories);
+    if (detected) {
+      setInferredBadge(detected);
+      if (!isAddingNewCat) {
+        setCategory(detected);
+      }
+    } else {
+      setInferredBadge(null);
+    }
+  };
+
+  // Select a suggestion from the autofill list
+  const handleSelectSuggestion = (sug: FoodSuggestion) => {
+    setName(sug.name);
+    setCategory(sug.category);
+    setInferredBadge(sug.category);
+    setShowSuggestions(false);
+
+    if (targetOfflinePrice === 0) {
+      setTargetOfflinePrice(sug.suggestedOfflinePrice);
+    }
+  };
+
+  // Keyboard navigation for suggestions
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault();
+      handleSelectSuggestion(suggestions[selectedIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
   };
 
   // Pre-submit validation -> Open confirmation prompt
@@ -174,18 +253,89 @@ export function EditMenuModal({
         <form onSubmit={handlePreSubmit} className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs">
           {/* 1. Nama Menu & Kategori */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">
-                Nama Menu <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Contoh: Paket Ayam Geprek"
-                className="w-full font-medium px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:bg-white"
-              />
+            <div className="relative" ref={dropdownRef}>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700 block">
+                  Nama Menu <span className="text-rose-500">*</span>
+                </label>
+                {inferredBadge && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/80">
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>Terhubung: <strong>{inferredBadge}</strong></span>
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Contoh: Nasi Rames, Ayam Geprek, Es Teh..."
+                  className="w-full font-medium px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:bg-white"
+                />
+                {name && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setName('');
+                      setInferredBadge(null);
+                    }}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Floating Autocomplete Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                    <span>Rekomendasi Menu & Kategori</span>
+                    <span className="text-[10px] text-slate-400">Pilih untuk auto-fill</span>
+                  </div>
+                  <div className="divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                    {suggestions.map((sug, idx) => (
+                      <button
+                        key={`${sug.name}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(sug)}
+                        className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 hover:bg-emerald-50/70 transition-colors cursor-pointer ${
+                          selectedIndex === idx ? 'bg-emerald-50 ring-1 ring-emerald-400 ring-inset' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                            <Utensils className="w-3 h-3" />
+                          </div>
+                          <div className="truncate">
+                            <div className="text-xs font-bold text-slate-800 truncate">
+                              {sug.name}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Estimasi modal: {formatRupiah(sug.suggestedOfflinePrice)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                            {sug.category}
+                          </span>
+                          {sug.source === 'existing' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 text-blue-700">
+                              Toko
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -242,8 +392,14 @@ export function EditMenuModal({
                   min="0"
                   step="500"
                   required
-                  value={targetOfflinePrice}
-                  onChange={(e) => setTargetOfflinePrice(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  value={targetOfflinePrice === 0 ? '' : targetOfflinePrice}
+                  onFocus={handleNumberInputFocus}
+                  onChange={(e) => {
+                    const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                    e.target.value = stringValue;
+                    setTargetOfflinePrice(numericValue);
+                  }}
                   className="w-full font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm"
                 />
               </div>
@@ -273,8 +429,14 @@ export function EditMenuModal({
                   min="0"
                   step="500"
                   required
-                  value={displayPrice}
-                  onChange={(e) => setDisplayPrice(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  value={displayPrice === 0 ? '' : displayPrice}
+                  onFocus={handleNumberInputFocus}
+                  onChange={(e) => {
+                    const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                    e.target.value = stringValue;
+                    setDisplayPrice(numericValue);
+                  }}
                   className="w-full font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm"
                 />
               </div>
@@ -313,9 +475,19 @@ export function EditMenuModal({
                 <input
                   type="number"
                   min="0"
+                  max={discountType === 'PERCENT' ? 100 : undefined}
                   step={discountType === 'PERCENT' ? '1' : '500'}
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  value={discountValue === 0 ? '' : discountValue}
+                  onFocus={handleNumberInputFocus}
+                  onChange={(e) => {
+                    const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, {
+                      min: 0,
+                      max: discountType === 'PERCENT' ? 100 : undefined,
+                    });
+                    e.target.value = stringValue;
+                    setDiscountValue(numericValue);
+                  }}
                   className="w-full font-bold text-slate-900 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none"
                 />
               </div>
