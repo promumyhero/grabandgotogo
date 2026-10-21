@@ -42,30 +42,32 @@ import {
   Undo2,
 } from 'lucide-react';
 
-// Lazy loaded modals for code splitting and instant bundle load
+import { ModalSkeleton } from '@/components/ModalSkeleton';
+
+// Lazy loaded modals with skeleton fallbacks for instant visual feedback and optimal performance
 const GrabReceiptModal = dynamic(
   () => import('@/components/GrabReceiptModal').then((mod) => mod.GrabReceiptModal),
-  { ssr: false }
+  { ssr: false, loading: () => <ModalSkeleton type="receipt" /> }
 );
 
 const GoFoodReceiptModal = dynamic(
   () => import('@/components/GoFoodReceiptModal').then((mod) => mod.GoFoodReceiptModal),
-  { ssr: false }
+  { ssr: false, loading: () => <ModalSkeleton type="receipt" /> }
 );
 
 const AddMenuModal = dynamic(
   () => import('@/components/AddMenuModal').then((mod) => mod.AddMenuModal),
-  { ssr: false }
+  { ssr: false, loading: () => <ModalSkeleton type="form" /> }
 );
 
 const EditMenuModal = dynamic(
   () => import('@/components/EditMenuModal').then((mod) => mod.EditMenuModal),
-  { ssr: false }
+  { ssr: false, loading: () => <ModalSkeleton type="form" /> }
 );
 
 const ManageCategoriesModal = dynamic(
   () => import('@/components/ManageCategoriesModal').then((mod) => mod.ManageCategoriesModal),
-  { ssr: false }
+  { ssr: false, loading: () => <ModalSkeleton type="category" /> }
 );
 
 const subscribeNoop = () => () => {};
@@ -95,7 +97,12 @@ export default function PricingEnginePage() {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   const [lastDeletedItem, setLastDeletedItem] = useState<MenuItem | null>(null);
   const [lastEditedItemBefore, setLastEditedItemBefore] = useState<MenuItem | null>(null);
-  const [undoType, setUndoType] = useState<'delete' | 'edit' | null>(null);
+  const [lastDeletedCategoryState, setLastDeletedCategoryState] = useState<{
+    categoryName: string;
+    prevCategories: string[];
+    prevItems: MenuItem[];
+  } | null>(null);
+  const [undoType, setUndoType] = useState<'delete' | 'edit' | 'category' | null>(null);
 
   // Sync state
   const [isSyncingDb, setIsSyncingDb] = useState(false);
@@ -196,7 +203,7 @@ export default function PricingEnginePage() {
     [channel, items, triggerHighlight, showToast]
   );
 
-  // Undo delete or edit action
+  // Undo delete, edit, or category deletion action
   const handleUndo = useCallback(() => {
     if (undoType === 'delete' && lastDeletedItem) {
       setItems((prev) => {
@@ -220,12 +227,36 @@ export default function PricingEnginePage() {
       showToast(`Perubahan menu "${lastEditedItemBefore.name}" telah dibatalkan.`);
       setLastEditedItemBefore(null);
       setUndoType(null);
+    } else if (undoType === 'category' && lastDeletedCategoryState) {
+      setCategories(lastDeletedCategoryState.prevCategories);
+      saveCategories(channel, lastDeletedCategoryState.prevCategories);
+      setItems(lastDeletedCategoryState.prevItems);
+      saveMenuItems(channel, lastDeletedCategoryState.prevItems);
+      showToast(`Kategori "${lastDeletedCategoryState.categoryName}" dan menu terkait berhasil dipulihkan.`);
+      setLastDeletedCategoryState(null);
+      setUndoType(null);
     }
-  }, [undoType, lastDeletedItem, lastEditedItemBefore, channel, triggerHighlight, showToast]);
+  }, [
+    undoType,
+    lastDeletedItem,
+    lastEditedItemBefore,
+    lastDeletedCategoryState,
+    channel,
+    triggerHighlight,
+    showToast,
+  ]);
 
   // Category management handlers
   const handleUpdateCategories = useCallback(
-    (newCategories: string[], updatedItems?: MenuItem[]) => {
+    (newCategories: string[], updatedItems?: MenuItem[], deletedCategoryName?: string) => {
+      if (deletedCategoryName) {
+        setLastDeletedCategoryState({
+          categoryName: deletedCategoryName,
+          prevCategories: categories,
+          prevItems: items,
+        });
+        setUndoType('category');
+      }
       setCategories(newCategories);
       saveCategories(channel, newCategories);
       if (updatedItems) {
@@ -233,7 +264,7 @@ export default function PricingEnginePage() {
         saveMenuItems(channel, updatedItems);
       }
     },
-    [channel]
+    [channel, categories, items]
   );
 
   const handleAddNewCategory = useCallback(
@@ -504,7 +535,7 @@ export default function PricingEnginePage() {
                 KALIBRASI RIIL
               </span>
               <span className="text-xs font-semibold text-slate-800 tabular-nums">
-                Order GF-957 (Rp 29.753)
+                {isGrab ? 'Order GF-957 (Rp 29.753)' : 'Order F-3388856614 & F-3392285639'}
               </span>
             </div>
             <button
@@ -593,9 +624,10 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Lazy Loaded GoFoodReceiptModal (F-3388856614 Mobile View) */}
+      {/* Lazy Loaded GoFoodReceiptModal (F-3388856614 & F-3392285639 Mobile View) */}
       {isReceiptModalOpen && !isGrab && (
         <GoFoodReceiptModal
+          key={selectedReceiptItem?.id ?? 'default'}
           isOpen={isReceiptModalOpen}
           onClose={() => setIsReceiptModalOpen(false)}
           selectedItem={selectedReceiptItem}
@@ -644,7 +676,7 @@ export default function PricingEnginePage() {
           channel={channel}
           items={items}
           onUpdateCategories={handleUpdateCategories}
-          onShowToast={(msg) => showToast(msg, false)}
+          onShowToast={(msg, allowUndo) => showToast(msg, allowUndo ?? false)}
         />
       )}
 
@@ -655,16 +687,17 @@ export default function PricingEnginePage() {
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
-          {toastCanUndo && (lastDeletedItem || lastEditedItemBefore) && (
-            <button
-              type="button"
-              onClick={handleUndo}
-              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-            >
-              <Undo2 className="w-3 h-3" />
-              <span>Urungkan</span>
-            </button>
-          )}
+          {toastCanUndo &&
+            (lastDeletedItem || lastEditedItemBefore || lastDeletedCategoryState) && (
+              <button
+                type="button"
+                onClick={handleUndo}
+                className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+              >
+                <Undo2 className="w-3 h-3" />
+                <span>Urungkan</span>
+              </button>
+            )}
         </div>
       )}
     </main>

@@ -19,8 +19,12 @@ interface ManageCategoriesModalProps {
   categories: string[];
   channel: WorkspaceChannel;
   items: MenuItem[];
-  onUpdateCategories: (newCategories: string[], updatedItems?: MenuItem[]) => void;
-  onShowToast: (message: string) => void;
+  onUpdateCategories: (
+    newCategories: string[],
+    updatedItems?: MenuItem[],
+    deletedCategoryName?: string
+  ) => void;
+  onShowToast: (message: string, allowUndo?: boolean) => void;
 }
 
 export function ManageCategoriesModal({
@@ -137,12 +141,13 @@ export function ManageCategoriesModal({
       });
     }
 
-    onUpdateCategories(updatedCategories, updatedItems);
+    onUpdateCategories(updatedCategories, updatedItems, catToDelete);
     setDeleteConfirmCat(null);
     onShowToast(
       `Kategori "${catToDelete}" dihapus${
         affectedCount > 0 ? ` (${affectedCount} menu dipindahkan ke "Lainnya")` : ''
-      }.`
+      }.`,
+      true
     );
   };
 

@@ -158,13 +158,9 @@ if (checkAtExact.netPayout >= 30000 && checkBelowExact.netPayout < 30000) {
   allPassed = false;
 }
 
-console.log('\n--- TEST 3: GoFood Benchmark F-3388856614 ---');
-// GoFood Real Order F-3388856614:
-// Penjualan: Rp 45.950
-// Biaya Layanan: 20% of Rp 45.950 = Rp 9.190 (or Rp 9.300 based on exact invoice tier)
-// Diskon Promo Konsumen: Rp 4.600 (Nominal)
-// Subsidi Gojek (25%): Rp 1.150
-// Biaya Ditanggung Mitra (75%): Rp 3.450
+console.log('\n--- TEST 3: GoFood Benchmark Orders (F-3388856614 & F-3392285639) ---');
+const GOFOOD_FIXED_FEE = 800;
+
 function calculateGoFoodForward(displayPrice, targetOfflinePrice, discountType, discountValue, commissionPct, subsidyPct, isCoFunded) {
   const safeDisplayPrice = Math.max(0, Math.round(displayPrice || 0));
   const safeTargetPrice = Math.max(0, Math.round(targetOfflinePrice || 0));
@@ -173,24 +169,47 @@ function calculateGoFoodForward(displayPrice, targetOfflinePrice, discountType, 
     : Math.min(safeDisplayPrice, Math.round(discountValue));
   const mitraPromo = isCoFunded ? Math.round(promoDiscount * (1 - subsidyPct / 100)) : promoDiscount;
   const gojekPromo = promoDiscount - mitraPromo;
-  const platformFee = Math.round(safeDisplayPrice * (commissionPct / 100));
+  const commissionBase = Math.max(0, safeDisplayPrice - mitraPromo);
+  const platformFee = safeDisplayPrice > 0 ? Math.round(commissionBase * (commissionPct / 100)) + GOFOOD_FIXED_FEE : 0;
   const totalDeduction = platformFee + mitraPromo;
   const netPayout = safeDisplayPrice - totalDeduction;
   const variance = netPayout - safeTargetPrice;
   return { promoDiscount, mitraPromo, gojekPromo, platformFee, totalDeduction, netPayout, variance };
 }
 
-const gfRes = calculateGoFoodForward(45950, 28000, 'NOMINAL', 4600, 20, 25, true);
-console.log('GoFood Order Test Result:', gfRes);
+// Receipt 1: F-3388856614
+const gf1 = calculateGoFoodForward(45950, 28000, 'NOMINAL', 4600, 20, 25, true);
+console.log('GoFood Order 1 (F-3388856614):', gf1);
 
-const gofoodAssertions = [
-  ['mitraPromo', gfRes.mitraPromo, 3450],
-  ['gojekPromo', gfRes.gojekPromo, 1150],
-  ['platformFee', gfRes.platformFee, 9190],
-  ['netPayout', gfRes.netPayout, 33310],
+const gofoodAssertions1 = [
+  ['Order 1 mitraPromo', gf1.mitraPromo, 3450],
+  ['Order 1 gojekPromo', gf1.gojekPromo, 1150],
+  ['Order 1 platformFee', gf1.platformFee, 9300],
+  ['Order 1 netPayout', gf1.netPayout, 33200],
 ];
 
-for (const [key, actual, expected] of gofoodAssertions) {
+for (const [key, actual, expected] of gofoodAssertions1) {
+  if (actual !== expected) {
+    console.error(`FAIL: ${key} expected ${expected}, got ${actual}`);
+    allPassed = false;
+  } else {
+    console.log(`PASS: ${key} = ${actual}`);
+  }
+}
+
+// Receipt 2: F-3392285639 (Real boncos invoice)
+const gf2 = calculateGoFoodForward(47850, 28000, 'NOMINAL', 20160, 20, 25, true);
+console.log('GoFood Order 2 (F-3392285639):', gf2);
+
+const gofoodAssertions2 = [
+  ['Order 2 mitraPromo', gf2.mitraPromo, 15120],
+  ['Order 2 gojekPromo', gf2.gojekPromo, 5040],
+  ['Order 2 platformFee', gf2.platformFee, 7346],
+  ['Order 2 netPayout', gf2.netPayout, 25384],
+  ['Order 2 variance (boncos)', gf2.variance, -2616],
+];
+
+for (const [key, actual, expected] of gofoodAssertions2) {
   if (actual !== expected) {
     console.error(`FAIL: ${key} expected ${expected}, got ${actual}`);
     allPassed = false;
@@ -202,5 +221,5 @@ for (const [key, actual, expected] of gofoodAssertions) {
 if (!allPassed) {
   process.exit(1);
 } else {
-  console.log('\nALL ENGINE BENCHMARK TESTS (GRABFOOD & GOFOOD) PASSED 100%!');
+  console.log('\nALL ENGINE BENCHMARK TESTS (GRABFOOD & GOFOOD) PASSED 100% WITH DUAL-RECEIPT CALIBRATION!');
 }

@@ -123,7 +123,7 @@ export function PricingTable({
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden relative">
       {isLoading && (
-        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 animate-pulse z-10" />
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-linear-to-r from-emerald-500 via-teal-400 to-emerald-500 animate-pulse z-10" />
       )}
       {/* Top Table Control Toolbar */}
       <div className="p-4 sm:p-5 border-b border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3.5">
@@ -269,7 +269,35 @@ export function PricingTable({
 
       {/* VIEW A: Mobile / Tablet Card View (shows automatically when viewMode === 'cards' or on mobile devices) */}
       <div className={`${viewMode === 'cards' ? 'block' : 'hidden md:hidden'} p-4 divide-y divide-slate-100`}>
-        {filteredItems.length === 0 ? (
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
+            {[1, 2].map((idx) => (
+              <div
+                key={`card-skeleton-${idx}`}
+                className="p-4 rounded-xl border border-slate-200/80 bg-white space-y-3"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="space-y-1.5">
+                    <div className="h-4 w-36 bg-slate-200 rounded" />
+                    <div className="h-3 w-16 bg-slate-100 rounded" />
+                  </div>
+                  <div className="h-6 w-20 bg-slate-200 rounded-lg" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                  <div className="h-10 bg-slate-50 rounded-lg" />
+                  <div className="h-10 bg-slate-50 rounded-lg" />
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                  <div className="h-7 w-28 bg-slate-200 rounded-xl" />
+                  <div className="flex gap-1">
+                    <div className="w-7 h-7 rounded-lg bg-slate-100" />
+                    <div className="w-7 h-7 rounded-lg bg-slate-100" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div className="py-12 text-center text-slate-400 font-medium text-xs">
             Tidak ada menu yang sesuai dengan filter.
           </div>
@@ -477,7 +505,43 @@ export function PricingTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredItems.length === 0 ? (
+            {isLoading ? (
+              [1, 2, 3, 4].map((idx) => (
+                <tr key={`row-skeleton-${idx}`} className="animate-pulse bg-slate-50/40">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
+                    <div className="h-4 w-40 bg-slate-200 rounded mb-1.5" />
+                    <div className="h-3 w-16 bg-slate-100 rounded" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-4 w-18 bg-slate-100 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-4 w-18 bg-slate-100 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-4 w-16 bg-slate-100 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-center">
+                    <div className="h-5 w-20 bg-slate-100 rounded-full mx-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-4 w-18 bg-slate-100 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-5 w-20 bg-slate-200 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-center">
+                    <div className="h-6 w-24 bg-slate-100 rounded-lg mx-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <div className="h-4 w-24 bg-slate-100 rounded ml-auto" />
+                  </td>
+                  <td className="px-4 py-3.5 text-center">
+                    <div className="h-6 w-24 bg-slate-100 rounded-lg mx-auto" />
+                  </td>
+                </tr>
+              ))
+            ) : filteredItems.length === 0 ? (
               <tr>
                 <td
                   colSpan={10}

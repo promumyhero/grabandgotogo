@@ -12,9 +12,18 @@ import {
  * Pure Mathematical Engine for Food Delivery Merchant Settlement Calculations.
  * Calibrated specifically against:
  * 1. GrabFood real merchant settlement policies (Reference Order GF-957).
- * 2. GoFood / GoBiz real settlement & Maksimal PRO promo co-funding (Reference Order F-3388856614).
+ * 2. GoFood / GoBiz real settlement & Maksimal PRO promo co-funding
+ *    (Reference Orders F-3388856614 and F-3392285639).
  * Uses exact integer rupiah math.
  */
+
+/**
+ * GoFood fixed per-order component inside "Biaya layanan GoFood Delivery".
+ * Derived from two real GoBiz receipts:
+ *   F-3388856614: 20% x (45.950 - 3.450)  + 800 = 9.300
+ *   F-3392285639: 20% x (47.850 - 15.120) + 800 = 7.346
+ */
+export const GOFOOD_FIXED_FEE = 800;
 
 export interface ForwardResult {
   discountAmount: number;
@@ -56,7 +65,8 @@ export function calculateForward(
 
   if (channel === 'GOFOOD') {
     // ==========================================
-    // GOFOOD / GOBIZ REAL SETTLEMENT MATH (F-3388856614)
+    // GOFOOD / GOBIZ REAL SETTLEMENT MATH
+    // Verified against F-3388856614 (Rp 33.200) and F-3392285639 (Rp 25.384)
     // ==========================================
     // 1. Customer Promo Discount (Gross discount received by customer)
     let grossPromoDiscount = 0;
@@ -73,8 +83,13 @@ export function calculateForward(
       : grossPromoDiscount;
     const gojekPromoShare = grossPromoDiscount - mitraPromoShare;
 
-    // 3. Biaya Layanan GoFood Delivery (Commission 20% on catalog/gross selling price)
-    const platformFee = Math.round(safeDisplayPrice * (safeCommPct / 100));
+    // 3. Biaya Layanan GoFood Delivery
+    // = Commission % x (Penjualan - Promo ditanggung mitra) + fixed Rp 800 per order
+    const commissionBase = Math.max(0, safeDisplayPrice - mitraPromoShare);
+    const platformFee =
+      safeDisplayPrice > 0
+        ? Math.round(commissionBase * (safeCommPct / 100)) + GOFOOD_FIXED_FEE
+        : 0;
     const marketingFee = 0; // GoFood does not have Grab's PUAS marketing booster
 
     // 4. Total Platform & Promo Deductions on GoFood Struk
@@ -225,20 +240,22 @@ export function calculateRecommendedPrice(
 
   if (channel === 'GOFOOD') {
     // GoFood Reverse Formula
-    // netPayout = displayPrice * (1 - safeCommPct/100) - mitraPromoShare >= safeTarget
+    // netPayout = (1 - komisi) x (displayPrice - mitraPromoShare) - GOFOOD_FIXED_FEE >= safeTarget
+    const keepFactor = 1 - Math.min(0.95, safeCommPct / 100);
+    const requiredBase = (safeTarget + GOFOOD_FIXED_FEE) / keepFactor;
+
     if (merchantDiscountType === 'PERCENT') {
       const discFraction = (merchantDiscountValue || 0) / 100;
-      const mitraPromoFraction = isCoFundedPromo
-        ? discFraction * (1 - safeSubsidyPct / 100)
-        : discFraction;
-      const totalCutFraction = Math.min(0.95, safeCommPct / 100 + mitraPromoFraction);
-      rawPrice = Math.ceil(safeTarget / (1 - totalCutFraction));
+      const mitraPromoFraction = Math.min(
+        0.95,
+        isCoFundedPromo ? discFraction * (1 - safeSubsidyPct / 100) : discFraction
+      );
+      rawPrice = Math.ceil(requiredBase / (1 - mitraPromoFraction));
     } else {
       const nominalMitra = isCoFundedPromo
         ? Math.round((merchantDiscountValue || 0) * (1 - safeSubsidyPct / 100))
         : Math.round(merchantDiscountValue || 0);
-      const commFactor = Math.min(0.95, safeCommPct / 100);
-      rawPrice = Math.ceil((safeTarget + nominalMitra) / (1 - commFactor));
+      rawPrice = Math.ceil(requiredBase + nominalMitra);
     }
   } else {
     // GrabFood Reverse Formula

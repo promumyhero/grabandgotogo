@@ -59,13 +59,26 @@ Formula telah diuji dengan *unit test benchmark* (kode acuan transaksi nyata `GF
 - **Net Payout:** Rp29.753 (Target Rp30.000 $\rightarrow$ *Defisit/Variance:* -Rp247)
 - **Rekomendasi Balik:** Minimum Rp65.000 (Ceil 500) $\rightarrow$ *Net Payout:* Rp30.030 (*Surplus:* +Rp30).
 
-### Benchmark GoFood / GoBiz (Order `F-3388856614`):
-- **Penjualan Katalog:** Rp45.950
-- **Biaya Layanan Delivery (20%):** Rp9.190 (atau Rp9.300 sesuai tier invoice)
-- **Promo Konsumen (Nominal):** Rp4.600
-- **Subsidi Gojek (25% Maksimal PRO):** Rp1.150
-- **Biaya Ditanggung Mitra (75%):** Rp3.450
-- **Pendapatan Bersih:** Rp33.310 (Target Rp28.000 $\rightarrow$ *Surplus:* +Rp5.310).
+### Benchmark GoFood / GoBiz (Dua Struk Nyata F-3388856614 & F-3392285639):
+Formula Biaya Layanan GoFood Delivery terverifikasi:
+$$\text{Biaya Layanan} = 20\% \times (\text{Penjualan} - \text{Promo Ditanggung Mitra}) + \text{Rp } 800$$
+
+1. **Order F-3388856614 (Surplus):**
+   - **Penjualan Katalog:** Rp45.950
+   - **Diskon Promo Konsumen (Nominal):** Rp4.600
+   - **Subsidi Gojek (25% Maksimal PRO):** Rp1.150
+   - **Biaya Ditanggung Mitra (75%):** Rp3.450
+   - **Biaya Layanan Delivery (20% x Rp42.500 + Rp800):** Rp9.300
+   - **Pendapatan Bersih:** Rp33.200 (Target Rp28.000 $\rightarrow$ *Surplus:* +Rp5.200).
+
+2. **Order F-3392285639 (Kasus Nyata Boncos Diskon Besar):**
+   - **Penjualan Katalog:** Rp47.850
+   - **Diskon Promo Konsumen (Voucher):** Rp20.160
+   - **Subsidi Gojek (25% Maksimal PRO):** Rp5.040
+   - **Biaya Ditanggung Mitra (75%):** Rp15.120
+   - **Biaya Layanan Delivery (20% x Rp32.730 + Rp800):** Rp7.346
+   - **Pendapatan Bersih:** Rp25.384 (Target Rp28.000 $\rightarrow$ *Defisit:* -Rp2.616).
+   - *Rekomendasi Kebal Boncos:* Naikkan harga tayang ke Rp51.500 agar tidak boncos walau konsumen memakai voucher besar!
 
 Uji validasi dapat dijalankan via:
 ```bash
@@ -106,10 +119,11 @@ grabdangotogo/
 │   │   ├── DashboardSkeleton.tsx# Skeleton loader zero-layout-shift
 │   │   ├── EditMenuModal.tsx    # Modal edit rincian menu dengan konfirmasi final & simulasi
 │   │   ├── GlobalPresetBar.tsx  # Bar pengaturan preset komisi & diskon massal
-│   │   ├── GoFoodReceiptModal.tsx# Modal simulasi struk GoFood/GoBiz Order F-3388856614
+│   │   ├── GoFoodReceiptModal.tsx# Modal simulasi struk GoFood/GoBiz Order F-3388856614 & F-3392285639
 │   │   ├── GrabReceiptModal.tsx # Modal simulasi struk transaksi GrabFood Order GF-957
 │   │   ├── KpiSummaryCards.tsx  # Kartu ringkasan metrik finansial
 │   │   ├── ManageCategoriesModal.tsx # Modal kelola, rename, dan migrasi kategori menu
+│   │   ├── ModalSkeleton.tsx    # Skeleton loader untuk modal dinamis
 │   │   ├── PricingTable.tsx     # Tabel interaktif kalkulasi & rekomendasi harga
 │   │   └── WorkspaceSwitcher.tsx# Tab beralih GrabFood & GoFood
 │   ├── lib/

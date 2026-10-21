@@ -17,6 +17,7 @@ import {
   BadgePercent,
   UtensilsCrossed,
   Info,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface GoFoodReceiptModalProps {
@@ -34,13 +35,14 @@ export function GoFoodReceiptModal({
   roundingRule = 'CEIL_500',
   onApplyIdealPrice,
 }: GoFoodReceiptModalProps) {
-  // Interactive test controls inside modal
-  const [interactiveSubsidy, setInteractiveSubsidy] = useState<number>(25); // 25% or 30% from GoBiz screenshots
+  // Interactive test controls inside modal (starts from the item's own subsidy setting)
+  const [interactiveSubsidy, setInteractiveSubsidy] = useState<number>(
+    selectedItem?.gojekSubsidyPct ?? 25
+  );
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  // Use benchmark real order F-3388856614 as default if none selected
   const activeItem: MenuItem = selectedItem ?? {
     id: 'gofood-order-f3388856614',
     name: 'Paket Hemat Resto (Order F-3388856614)',
@@ -59,52 +61,108 @@ export function GoFoodReceiptModal({
     updatedAt: new Date().toISOString(),
   };
 
+  // Benchmark order detection
+  const isOrderF3388856614 =
+    !selectedItem ||
+    selectedItem.id === 'go-order-f3388856614' ||
+    selectedItem.id === 'gofood-order-f3388856614';
+  const isOrderF3392285639 = selectedItem?.id === 'go-order-f3392285639';
+  const isBenchmarkOrder = isOrderF3388856614 || isOrderF3392285639;
+
+  const orderNumber = isOrderF3388856614
+    ? 'F-3388856614'
+    : isOrderF3392285639
+    ? 'F-3392285639'
+    : activeItem.name;
+
+  const orderTimestamp = isOrderF3388856614
+    ? '12:27, 12 Okt'
+    : isOrderF3392285639
+    ? '14:02, 18 Okt'
+    : 'Simulasi';
+
   const subsidyPct = interactiveSubsidy;
-  const isBenchmark = activeItem.targetOfflinePrice === 28000 && activeItem.displayPrice === 45950;
+  const isCoFunded = activeItem.isCoFundedPromo ?? true;
+  const commissionPct = activeItem.platformCommissionPct;
 
   const forwardResult = calculateForward(
     activeItem.displayPrice,
     activeItem.targetOfflinePrice,
     activeItem.merchantDiscountType,
     activeItem.merchantDiscountValue,
-    activeItem.platformCommissionPct,
+    commissionPct,
     0,
     false,
     'GOFOOD',
     subsidyPct,
-    true
+    isCoFunded
   );
 
-  // If this is the benchmark order, force exact receipt numbers for order F-3388856614
-  const displayPenjualan = isBenchmark ? 45950 : activeItem.displayPrice;
-  const displayBiayaLayanan = isBenchmark ? 9300 : forwardResult.platformFee;
-  const displayBiayaMitra = isBenchmark ? 3450 : (forwardResult.mitraPromoShare ?? 0);
-  const displayNetPayout = displayPenjualan - displayBiayaLayanan - displayBiayaMitra;
-  const displayVariance = displayNetPayout - activeItem.targetOfflinePrice;
+  // All numbers come straight from the engine:
+  // Biaya layanan = komisi% x (Penjualan - Promo mitra) + Rp 800
+  const displayPenjualan = activeItem.displayPrice;
+  const displayBiayaLayanan = forwardResult.platformFee;
+  const displayBiayaMitra = forwardResult.mitraPromoShare ?? 0;
+  const displayTotalDiskon = forwardResult.discountAmount;
+  const displaySubsidiGojek = forwardResult.gojekPromoShare ?? 0;
+  const displayNetPayout = forwardResult.netPayout;
+  const displayVariance = forwardResult.variance;
 
-  // Calculate Reverse Ideal Display Price for GoFood
+  // Calculate Reverse Ideal Display Price for GoFood (with the item's own discount)
   const recommendation = calculateRecommendedPrice(
     activeItem.targetOfflinePrice,
     activeItem.merchantDiscountType,
     activeItem.merchantDiscountValue,
-    activeItem.platformCommissionPct,
+    commissionPct,
     0,
     false,
     roundingRule,
     'GOFOOD',
     subsidyPct,
-    true
+    isCoFunded
+  );
+
+  // Worst-case simulation: Maksimal PRO picks a discount between 10% and 50% per order
+  const WORST_CASE_LEVELS = [10, 20, 30, 40, 50];
+  const worstCaseRows = WORST_CASE_LEVELS.map((pct) => {
+    const sim = calculateForward(
+      activeItem.displayPrice,
+      activeItem.targetOfflinePrice,
+      'PERCENT',
+      pct,
+      commissionPct,
+      0,
+      false,
+      'GOFOOD',
+      subsidyPct,
+      isCoFunded
+    );
+    return { pct, mitra: sim.mitraPromoShare ?? 0, net: sim.netPayout, variance: sim.variance };
+  });
+
+  const worstCaseRecommendation = calculateRecommendedPrice(
+    activeItem.targetOfflinePrice,
+    'PERCENT',
+    50,
+    commissionPct,
+    0,
+    false,
+    roundingRule,
+    'GOFOOD',
+    subsidyPct,
+    isCoFunded
   );
 
   const handleCopySummary = () => {
-    const text = `Rincian Transaksi GoFood Order F-3388856614 (${activeItem.name})
+    const text = `Rincian Transaksi GoFood${orderNumber.startsWith('F-') ? ` Order ${orderNumber}` : ''} (${activeItem.name})
 - Penjualan: ${formatRupiah(displayPenjualan)}
-- Biaya layanan GoFood Delivery (20%): -${formatRupiah(displayBiayaLayanan)}
+- Biaya layanan GoFood Delivery (${commissionPct}% x (Penjualan - Promo mitra) + Rp 800): -${formatRupiah(displayBiayaLayanan)}
 - Promo (Ditanggung mitra usaha): -${formatRupiah(displayBiayaMitra)}
 - Total pendapatan bersih: ${formatRupiah(displayNetPayout)}
 - Target Offline: ${formatRupiah(activeItem.targetOfflinePrice)}
-- Selisih vs Target: ${formatRupiah(displayVariance, true)} (Surplus)
-- Rekomendasi Harga Ideal: ${formatRupiah(recommendation.roundedRecommendedPrice)}`;
+- Selisih vs Target: ${formatRupiah(displayVariance, true)} (${displayVariance < 0 ? 'Defisit' : 'Surplus'})
+- Rekomendasi Harga Ideal: ${formatRupiah(recommendation.roundedRecommendedPrice)}
+- Harga Aman jika Diskon s.d. 50%: ${formatRupiah(worstCaseRecommendation.roundedRecommendedPrice)}`;
 
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -151,19 +209,26 @@ export function GoFoodReceiptModal({
                 <div>
                   <div className="text-xs font-medium text-slate-500">GoFood Delivery</div>
                   <div className="text-sm font-bold text-slate-900 tracking-tight">
-                    F-3388856614
+                    {orderNumber}
                   </div>
                 </div>
               </div>
-              <span className="text-xs text-slate-400 font-medium">12:27, 12 Okt</span>
+              <span className="text-xs text-slate-400 font-medium shrink-0">
+                {orderTimestamp}
+              </span>
             </div>
 
             {/* Pill Badge: Dari Diskon */}
-            <div className="mt-2.5">
+            <div className="mt-2.5 flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
                 <UtensilsCrossed className="w-3 h-3 text-sky-600" />
                 <span>Dari Diskon</span>
               </span>
+              {isBenchmarkOrder && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                  Struk Nyata GoBiz
+                </span>
+              )}
             </div>
           </div>
 
@@ -211,9 +276,14 @@ export function GoFoodReceiptModal({
             </div>
 
             <div className="flex justify-between items-center py-1 border-b border-slate-100">
-              <span className="text-slate-600 font-medium">
-                Biaya layanan GoFood Delivery (20%)
-              </span>
+              <div>
+                <span className="text-slate-600 font-medium block">
+                  Biaya layanan GoFood Delivery
+                </span>
+                <span className="text-slate-400 block text-[10px]">
+                  {commissionPct}% x ({formatRupiah(displayPenjualan)} - {formatRupiah(displayBiayaMitra)}) + Rp 800
+                </span>
+              </div>
               <span className="font-bold text-slate-900 tabular-nums">
                 -{formatRupiah(displayBiayaLayanan)}
               </span>
@@ -263,7 +333,7 @@ export function GoFoodReceiptModal({
           <div className="pt-3 border-t border-dashed border-slate-200 space-y-2.5">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
               <Info className="w-3.5 h-3.5 text-blue-600" />
-              <span>Analisis Margin vs Target Offline (Rp 28.000)</span>
+              <span>Analisis Margin vs Target Offline ({formatRupiah(activeItem.targetOfflinePrice)})</span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -292,14 +362,91 @@ export function GoFoodReceiptModal({
 
             {/* Explanation card of co-funded math */}
             <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-xs text-blue-900 leading-relaxed">
-              <span className="font-bold">Kenapa muncul potongan promo Rp 3.450?</span>
-              <p className="mt-1 text-[11px] text-blue-800">
-                Resto tergabung dalam program <strong>Maksimal PRO ({subsidyPct}% Subsidi)</strong>. Total voucher konsumen adalah <strong>Rp 4.600</strong>. Gojek mensubsidi {subsidyPct}% (Rp 1.150), sehingga {100 - subsidyPct}% sisanya (<strong>Rp 3.450</strong>) otomatis dipotong dari pendapatan resto.
-              </p>
+              <span className="font-bold">
+                Kenapa muncul potongan promo {formatRupiah(displayBiayaMitra)}?
+              </span>
+              {isCoFunded ? (
+                <p className="mt-1 text-[11px] text-blue-800">
+                  Resto tergabung dalam program <strong>Maksimal PRO ({subsidyPct}% Subsidi)</strong>. Total diskon konsumen adalah <strong>{formatRupiah(displayTotalDiskon)}</strong>. Gojek mensubsidi {subsidyPct}% ({formatRupiah(displaySubsidiGojek)}), sehingga {100 - subsidyPct}% sisanya (<strong>{formatRupiah(displayBiayaMitra)}</strong>) dipotong dari pendapatan resto.
+                </p>
+              ) : (
+                <p className="mt-1 text-[11px] text-blue-800">
+                  Diskon konsumen sebesar <strong>{formatRupiah(displayTotalDiskon)}</strong> ditanggung penuh oleh resto.
+                </p>
+              )}
+            </div>
+
+            {/* Worst-case simulation for Maksimal PRO dynamic discount (10% - 50%) */}
+            <div className="rounded-xl border border-slate-200 overflow-hidden text-xs">
+              <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+                <div className="font-bold text-slate-800">
+                  Simulasi Diskon Maksimal PRO (10% - 50%)
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Pendapatan bersih di harga {formatRupiah(displayPenjualan)} bila Gojek memberi diskon sebesar:
+                </div>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="text-[10px] text-slate-500 border-b border-slate-100">
+                    <th className="px-3 py-1.5 text-left font-semibold">Diskon</th>
+                    <th className="px-3 py-1.5 text-right font-semibold">Promo Mitra</th>
+                    <th className="px-3 py-1.5 text-right font-semibold">Bersih</th>
+                    <th className="px-3 py-1.5 text-right font-semibold">Selisih</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {worstCaseRows.map((row) => (
+                    <tr key={`wc-${row.pct}`}>
+                      <td className="px-3 py-1.5 font-semibold text-slate-700">{row.pct}%</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
+                        -{formatRupiah(row.mitra)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-bold text-slate-900">
+                        {formatRupiah(row.net)}
+                      </td>
+                      <td
+                        className={`px-3 py-1.5 text-right tabular-nums font-bold ${
+                          row.variance < 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
+                      >
+                        {formatRupiah(row.variance, true)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[11px] text-slate-600 block">
+                    Harga kebal boncos (aman walau diskon 50%):
+                  </span>
+                  <span className="font-extrabold text-slate-900 tabular-nums">
+                    {formatRupiah(worstCaseRecommendation.roundedRecommendedPrice)}
+                  </span>
+                </div>
+                {onApplyIdealPrice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyIdealPrice(
+                        activeItem.id,
+                        worstCaseRecommendation.roundedRecommendedPrice
+                      );
+                      onClose();
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                    title="Terapkan harga ini agar menu kebal boncos meskipun Gojek memberi diskon 50%"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Pakai Harga Aman</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Ideal Price Recommendation */}
-            <div className="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
+            <div className="p-3.5 bg-linear-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1 text-[11px] font-bold text-amber-800 uppercase tracking-wider">
@@ -325,7 +472,7 @@ export function GoFoodReceiptModal({
                 )}
               </div>
               <div className="text-[11px] text-amber-700 mt-1.5">
-                Harga minimum agar setelah dipotong komisi 20% + promo resto, hasil bersih tetap <strong>&ge; {formatRupiah(activeItem.targetOfflinePrice)}</strong>.
+                Harga minimum (dengan diskon menu ini) agar setelah dipotong komisi {commissionPct}% + Rp 800 + promo resto, hasil bersih tetap <strong>&ge; {formatRupiah(activeItem.targetOfflinePrice)}</strong>.
               </div>
             </div>
           </div>
