@@ -57,6 +57,9 @@ export function AddMenuModal({
   const [isBoosterActive, setIsBoosterActive] = useState<boolean>(
     isGrab ? presets.isBoosterActiveDefault : false
   );
+  const [gojekSubsidyPct, setGojekSubsidyPct] = useState<number>(
+    presets.gojekSubsidyPct ?? 25
+  );
   const [notes, setNotes] = useState('');
 
   // Auto-fill & auto-suggest states
@@ -90,7 +93,7 @@ export function AddMenuModal({
     presets.marketingBoosterPct,
     isBoosterActive,
     channel,
-    presets.gojekSubsidyPct ?? 25,
+    gojekSubsidyPct,
     presets.isCoFundedPromo ?? true
   );
 
@@ -103,7 +106,7 @@ export function AddMenuModal({
     isBoosterActive,
     presets.roundingRule,
     channel,
-    presets.gojekSubsidyPct ?? 25,
+    gojekSubsidyPct,
     presets.isCoFundedPromo ?? true
   );
 
@@ -148,7 +151,7 @@ export function AddMenuModal({
         isBoosterActive,
         presets.roundingRule,
         channel,
-        presets.gojekSubsidyPct ?? 25,
+        gojekSubsidyPct,
         presets.isCoFundedPromo ?? true
       );
       setDisplayPrice(rec.roundedRecommendedPrice);
@@ -197,7 +200,7 @@ export function AddMenuModal({
       platformCommissionPct: presets.platformCommissionPct,
       marketingBoosterPct: isGrab ? presets.marketingBoosterPct : 0,
       isBoosterActive: isGrab ? isBoosterActive : false,
-      gojekSubsidyPct: !isGrab ? (presets.gojekSubsidyPct ?? 25) : undefined,
+      gojekSubsidyPct: !isGrab ? gojekSubsidyPct : undefined,
       isCoFundedPromo: !isGrab,
       notes: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
@@ -478,8 +481,8 @@ export function AddMenuModal({
               />
             </div>
 
-            {/* Platform Booster (GrabFood Only) */}
-            {isGrab && (
+            {/* Platform Booster (GrabFood) or Subsidi Gojek (GoFood) */}
+            {isGrab ? (
               <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div>
                   <span className="text-xs font-bold text-slate-800 block">
@@ -496,10 +499,44 @@ export function AddMenuModal({
                   className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
                 />
               </div>
+            ) : (
+              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">
+                    Skema Program Maksimal PRO (GoFood)
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Gojek mensubsidi {gojekSubsidyPct}%, resto menanggung {100 - gojekSubsidyPct}% diskon
+                  </span>
+                </div>
+                <select
+                  value={gojekSubsidyPct}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    setGojekSubsidyPct(Number.isNaN(parsed) ? 25 : parsed);
+                  }}
+                  className="font-bold text-rose-700 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none cursor-pointer"
+                >
+                  <option value={25}>Disubsidi 25% (Mitra 75%)</option>
+                  <option value={30}>Disubsidi 30% (Mitra 70%)</option>
+                  <option value={0}>0% (Mitra 100%)</option>
+                  <option value={50}>50% (50/50)</option>
+                </select>
+              </div>
             )}
 
             {/* Live Calculation Margin Preview */}
             <div className="sm:col-span-2 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200 space-y-2">
+              {!isGrab && (
+                <div className="flex items-center justify-between text-[11px] text-slate-500 pb-1.5 border-b border-slate-200/70">
+                  <span>
+                    Rincian Potongan GoFood (Layanan {formatRupiah(forwardCalc.platformFee)} + Promo Mitra {formatRupiah(forwardCalc.mitraPromoShare ?? 0)}):
+                  </span>
+                  <span className="font-semibold text-rose-600 tabular-nums">
+                    -{formatRupiah(forwardCalc.totalPlatformDeduction)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-500 font-medium">Hasil Net Payout:</span>
                 <span className="font-bold text-slate-900 tabular-nums">

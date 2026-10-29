@@ -107,8 +107,8 @@ export function EditMenuModal({
     targetOfflinePrice,
     discountType,
     discountValue,
-    item.platformCommissionPct || presets.platformCommissionPct,
-    item.marketingBoosterPct || presets.marketingBoosterPct,
+    item.platformCommissionPct ?? presets.platformCommissionPct,
+    item.marketingBoosterPct ?? presets.marketingBoosterPct,
     isBoosterActive,
     channel,
     gojekSubsidyPct,
@@ -119,8 +119,8 @@ export function EditMenuModal({
     targetOfflinePrice,
     discountType,
     discountValue,
-    item.platformCommissionPct || presets.platformCommissionPct,
-    item.marketingBoosterPct || presets.marketingBoosterPct,
+    item.platformCommissionPct ?? presets.platformCommissionPct,
+    item.marketingBoosterPct ?? presets.marketingBoosterPct,
     isBoosterActive,
     presets.roundingRule,
     channel,
@@ -533,7 +533,10 @@ export function EditMenuModal({
                 </div>
                 <select
                   value={gojekSubsidyPct}
-                  onChange={(e) => setGojekSubsidyPct(parseInt(e.target.value) || 25)}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    setGojekSubsidyPct(Number.isNaN(parsed) ? 25 : parsed);
+                  }}
                   className="font-bold text-rose-700 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none cursor-pointer"
                 >
                   <option value={25}>Disubsidi 25% (Mitra 75%)</option>

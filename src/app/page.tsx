@@ -29,7 +29,7 @@ import {
   setStoredActiveChannel,
   resetWorkspaceToDefaults,
 } from '@/lib/storage';
-import { exportPricingToCsv } from '@/lib/csv-helper';
+import { exportPricingToCsv, parsePricingCsv } from '@/lib/csv-helper';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { KpiSummaryCards } from '@/components/KpiSummaryCards';
 import { GlobalPresetBar } from '@/components/GlobalPresetBar';
@@ -93,16 +93,15 @@ export default function PricingEnginePage() {
   const [selectedEditItem, setSelectedEditItem] = useState<MenuItem | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
-  // Micro-interaction Highlight & Undo states
+  // Micro-interaction Highlight & Unified Undo Snapshot state
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
-  const [lastDeletedItem, setLastDeletedItem] = useState<MenuItem | null>(null);
-  const [lastEditedItemBefore, setLastEditedItemBefore] = useState<MenuItem | null>(null);
-  const [lastDeletedCategoryState, setLastDeletedCategoryState] = useState<{
-    categoryName: string;
-    prevCategories: string[];
+  const [undoSnapshot, setUndoSnapshot] = useState<{
+    restoreToast: string;
     prevItems: MenuItem[];
+    prevCategories?: string[];
+    prevPresets?: GlobalPresets;
+    highlightId?: string;
   } | null>(null);
-  const [undoType, setUndoType] = useState<'delete' | 'edit' | 'category' | null>(null);
 
   // Sync state
   const [isSyncingDb, setIsSyncingDb] = useState(false);
@@ -125,8 +124,30 @@ export default function PricingEnginePage() {
     setTimeout(() => {
       setToastMessage(null);
       setToastCanUndo(false);
-    }, 4500);
+    }, 5000);
   }, []);
+
+  // Precompute calculations map for all items
+  const calculations = useMemo(() => {
+    const map = new Map<string, CalculationResult>();
+    items.forEach((item) => {
+      const calc = calculateMenuItem({
+        targetOfflinePrice: item.targetOfflinePrice,
+        displayPrice: item.displayPrice,
+        merchantDiscountType: item.merchantDiscountType,
+        merchantDiscountValue: item.merchantDiscountValue,
+        platformCommissionPct: item.platformCommissionPct,
+        marketingBoosterPct: item.marketingBoosterPct,
+        isBoosterActive: item.isBoosterActive,
+        roundingRule: presets.roundingRule,
+        channel,
+        gojekSubsidyPct: item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+        isCoFundedPromo: item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true,
+      });
+      map.set(item.id, calc);
+    });
+    return map;
+  }, [items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, channel]);
 
   // Handle Channel Change with smooth transition
   const handleChannelChange = (newChannel: WorkspaceChannel) => {
@@ -139,6 +160,7 @@ export default function PricingEnginePage() {
       setItems(loadedItems);
       setPresets(loadedPresets);
       setCategories(loadedCategories);
+      setUndoSnapshot(null);
     });
     showToast(`Beralih ke workspace ${newChannel === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}`);
   };
@@ -163,8 +185,11 @@ export default function PricingEnginePage() {
     (id: string) => {
       const target = items.find((it) => it.id === id);
       if (target) {
-        setLastDeletedItem(target);
-        setUndoType('delete');
+        setUndoSnapshot({
+          restoreToast: `Menu "${target.name}" berhasil dipulihkan`,
+          prevItems: items,
+          highlightId: target.id,
+        });
       }
       setItems((prev) => {
         const next = prev.filter((it) => it.id !== id);
@@ -172,6 +197,89 @@ export default function PricingEnginePage() {
         return next;
       });
       showToast(`Menu "${target?.name || ''}" berhasil dihapus`, true);
+    },
+    [items, channel, showToast]
+  );
+
+  // Bulk Delete items with Undo capability
+  const handleBulkDeleteItems = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      setUndoSnapshot({
+        restoreToast: `${ids.length} menu yang dihapus berhasil dipulihkan`,
+        prevItems: items,
+      });
+      setItems((prev) => {
+        const next = prev.filter((it) => !idSet.has(it.id));
+        saveMenuItems(channel, next);
+        return next;
+      });
+      showToast(`${ids.length} menu terpilih berhasil dihapus`, true);
+    },
+    [items, channel, showToast]
+  );
+
+  // Bulk Apply Ideal Prices to selected items with Undo capability
+  const handleBulkApplyIdealPrices = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      setUndoSnapshot({
+        restoreToast: `Harga sebelumnya untuk ${ids.length} menu berhasil dikembalikan`,
+        prevItems: items,
+      });
+      setItems((prev) => {
+        const next = prev.map((item) => {
+          if (!idSet.has(item.id)) return item;
+          const calc = calculations.get(item.id);
+          const idealPrice =
+            calc?.recommendedDisplayPriceRounded ??
+            calculateRecommendedPrice(
+              item.targetOfflinePrice,
+              item.merchantDiscountType,
+              item.merchantDiscountValue,
+              item.platformCommissionPct,
+              item.marketingBoosterPct,
+              item.isBoosterActive,
+              presets.roundingRule,
+              channel,
+              item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+              item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true
+            ).roundedRecommendedPrice;
+          return {
+            ...item,
+            displayPrice: idealPrice,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        saveMenuItems(channel, next);
+        return next;
+      });
+      showToast(`Harga ideal diterapkan pada ${ids.length} menu terpilih`, true);
+    },
+    [items, calculations, channel, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]
+  );
+
+  // Bulk Update items (Booster, Subsidy, or Category) with Undo capability
+  const handleBulkUpdateItems = useCallback(
+    (ids: string[], updates: Partial<MenuItem>, actionLabel: string) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      setUndoSnapshot({
+        restoreToast: `Perubahan massal (${actionLabel}) telah dibatalkan`,
+        prevItems: items,
+      });
+      setItems((prev) => {
+        const next = prev.map((it) =>
+          idSet.has(it.id)
+            ? { ...it, ...updates, updatedAt: new Date().toISOString() }
+            : it
+        );
+        saveMenuItems(channel, next);
+        return next;
+      });
+      showToast(`${actionLabel} diterapkan pada ${ids.length} menu`, true);
     },
     [items, channel, showToast]
   );
@@ -187,8 +295,11 @@ export default function PricingEnginePage() {
     (updatedItem: MenuItem) => {
       const original = items.find((it) => it.id === updatedItem.id);
       if (original) {
-        setLastEditedItemBefore(original);
-        setUndoType('edit');
+        setUndoSnapshot({
+          restoreToast: `Perubahan menu "${original.name}" telah dibatalkan.`,
+          prevItems: items,
+          highlightId: original.id,
+        });
       }
 
       setItems((prev) => {
@@ -203,59 +314,36 @@ export default function PricingEnginePage() {
     [channel, items, triggerHighlight, showToast]
   );
 
-  // Undo delete, edit, or category deletion action
+  // Unified Undo handler for single/bulk/global actions
   const handleUndo = useCallback(() => {
-    if (undoType === 'delete' && lastDeletedItem) {
-      setItems((prev) => {
-        const next = [lastDeletedItem, ...prev];
-        saveMenuItems(channel, next);
-        return next;
-      });
-      triggerHighlight(lastDeletedItem.id);
-      setLastDeletedItem(null);
-      setUndoType(null);
-      showToast(`Menu "${lastDeletedItem.name}" berhasil dipulihkan`);
-    } else if (undoType === 'edit' && lastEditedItemBefore) {
-      setItems((prev) => {
-        const next = prev.map((it) =>
-          it.id === lastEditedItemBefore.id ? lastEditedItemBefore : it
-        );
-        saveMenuItems(channel, next);
-        return next;
-      });
-      triggerHighlight(lastEditedItemBefore.id);
-      showToast(`Perubahan menu "${lastEditedItemBefore.name}" telah dibatalkan.`);
-      setLastEditedItemBefore(null);
-      setUndoType(null);
-    } else if (undoType === 'category' && lastDeletedCategoryState) {
-      setCategories(lastDeletedCategoryState.prevCategories);
-      saveCategories(channel, lastDeletedCategoryState.prevCategories);
-      setItems(lastDeletedCategoryState.prevItems);
-      saveMenuItems(channel, lastDeletedCategoryState.prevItems);
-      showToast(`Kategori "${lastDeletedCategoryState.categoryName}" dan menu terkait berhasil dipulihkan.`);
-      setLastDeletedCategoryState(null);
-      setUndoType(null);
+    if (!undoSnapshot) return;
+    setItems(undoSnapshot.prevItems);
+    saveMenuItems(channel, undoSnapshot.prevItems);
+
+    if (undoSnapshot.prevCategories) {
+      setCategories(undoSnapshot.prevCategories);
+      saveCategories(channel, undoSnapshot.prevCategories);
     }
-  }, [
-    undoType,
-    lastDeletedItem,
-    lastEditedItemBefore,
-    lastDeletedCategoryState,
-    channel,
-    triggerHighlight,
-    showToast,
-  ]);
+    if (undoSnapshot.prevPresets) {
+      setPresets(undoSnapshot.prevPresets);
+      savePresets(channel, undoSnapshot.prevPresets);
+    }
+    if (undoSnapshot.highlightId) {
+      triggerHighlight(undoSnapshot.highlightId);
+    }
+    showToast(undoSnapshot.restoreToast, false);
+    setUndoSnapshot(null);
+  }, [undoSnapshot, channel, triggerHighlight, showToast]);
 
   // Category management handlers
   const handleUpdateCategories = useCallback(
     (newCategories: string[], updatedItems?: MenuItem[], deletedCategoryName?: string) => {
       if (deletedCategoryName) {
-        setLastDeletedCategoryState({
-          categoryName: deletedCategoryName,
+        setUndoSnapshot({
+          restoreToast: `Kategori "${deletedCategoryName}" dan menu terkait berhasil dipulihkan.`,
           prevCategories: categories,
           prevItems: items,
         });
-        setUndoType('category');
       }
       setCategories(newCategories);
       saveCategories(channel, newCategories);
@@ -323,8 +411,12 @@ export default function PricingEnginePage() {
     [channel]
   );
 
-  // Apply Presets to All Items
+  // Apply Presets to All Items (with Undo protection)
   const handleApplyPresetsToAllItems = useCallback(() => {
+    setUndoSnapshot({
+      restoreToast: 'Parameter menu sebelum sinkronisasi preset berhasil dikembalikan',
+      prevItems: items,
+    });
     setItems((prev) => {
       const next = prev.map((item) => ({
         ...item,
@@ -333,13 +425,15 @@ export default function PricingEnginePage() {
         merchantDiscountValue: presets.merchantDiscountValue,
         merchantDiscountType: presets.merchantDiscountType,
         isBoosterActive: presets.isBoosterActiveDefault,
+        gojekSubsidyPct: presets.gojekSubsidyPct ?? item.gojekSubsidyPct ?? 25,
+        isCoFundedPromo: presets.isCoFundedPromo ?? item.isCoFundedPromo ?? true,
         updatedAt: new Date().toISOString(),
       }));
       saveMenuItems(channel, next);
       return next;
     });
-    showToast('Parameter preset global berhasil diterapkan ke semua menu');
-  }, [channel, presets, showToast]);
+    showToast('Parameter preset global diterapkan ke semua menu', true);
+  }, [channel, items, presets, showToast]);
 
   // Apply Ideal Price to Single Item
   const handleApplyIdealPrice = useCallback(
@@ -351,8 +445,12 @@ export default function PricingEnginePage() {
     [handleUpdateItem, triggerHighlight, showToast]
   );
 
-  // Apply Ideal Price to ALL items
+  // Apply Ideal Price to ALL items (with Undo protection)
   const handleApplyAllIdealPrices = useCallback(() => {
+    setUndoSnapshot({
+      restoreToast: 'Harga menu sebelum penerapan harga ideal massal berhasil dikembalikan',
+      prevItems: items,
+    });
     setItems((prev) => {
       const next = prev.map((item) => {
         const rec = calculateRecommendedPrice(
@@ -376,17 +474,23 @@ export default function PricingEnginePage() {
       saveMenuItems(channel, next);
       return next;
     });
-    showToast('Semua menu kini menggunakan Harga Ideal (Dijamin bebas boncos)!');
-  }, [channel, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]);
+    showToast('Semua menu kini menggunakan Harga Ideal (Dijamin bebas boncos)!', true);
+  }, [channel, items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]);
 
-  // Reset Defaults
+  // Reset Defaults (with Undo protection)
   const handleResetDefaults = useCallback(() => {
+    setUndoSnapshot({
+      restoreToast: 'Data workspace sebelum reset berhasil dipulihkan',
+      prevItems: items,
+      prevCategories: categories,
+      prevPresets: presets,
+    });
     const res = resetWorkspaceToDefaults(channel);
     setItems(res.items);
     setPresets(res.presets);
     setCategories(res.categories);
-    showToast('Workspace berhasil di-reset ke nilai default awal.');
-  }, [channel, showToast]);
+    showToast('Workspace di-reset ke nilai default awal.', true);
+  }, [channel, items, categories, presets, showToast]);
 
   // Open Receipt Modal
   const handleOpenReceiptModal = useCallback((item?: MenuItem) => {
@@ -394,27 +498,60 @@ export default function PricingEnginePage() {
     setIsReceiptModalOpen(true);
   }, []);
 
-  // Export CSV
-  const handleExportCsv = useCallback(() => {
-    const calcMap = new Map<string, CalculationResult>();
-    items.forEach((item) => {
-      calcMap.set(
-        item.id,
-        calculateMenuItem({
-          targetOfflinePrice: item.targetOfflinePrice,
-          displayPrice: item.displayPrice,
-          merchantDiscountType: item.merchantDiscountType,
-          merchantDiscountValue: item.merchantDiscountValue,
-          platformCommissionPct: item.platformCommissionPct,
-          marketingBoosterPct: item.marketingBoosterPct,
-          isBoosterActive: item.isBoosterActive,
-          roundingRule: presets.roundingRule,
-        })
+  // Export CSV (uses accurate channel-aware memoized calculations map)
+  const handleExportCsv = useCallback(
+    (targetItems?: MenuItem[]) => {
+      const listToExport = targetItems && targetItems.length > 0 ? targetItems : items;
+      exportPricingToCsv(listToExport, calculations, channel);
+      showToast(
+        targetItems && targetItems.length > 0
+          ? `File CSV (${targetItems.length} menu terpilih) berhasil diunduh`
+          : 'File CSV seluruh menu berhasil diunduh'
       );
-    });
-    exportPricingToCsv(items, calcMap, channel);
-    showToast('File CSV berhasil diunduh');
-  }, [items, channel, presets.roundingRule, showToast]);
+    },
+    [items, calculations, channel, showToast]
+  );
+
+  // Import CSV with Undo protection & category auto-discovery
+  const handleImportCsv = useCallback(
+    (rawCsvText: string) => {
+      const result = parsePricingCsv(rawCsvText, channel, presets);
+      if (result.items.length === 0) {
+        showToast('Tidak ada data menu valid yang ditemukan di file CSV.');
+        return;
+      }
+
+      setUndoSnapshot({
+        restoreToast: `Impor ${result.items.length} menu dari CSV telah dibatalkan`,
+        prevItems: items,
+        prevCategories: categories,
+      });
+
+      const mergedCategories = Array.from(
+        new Set([...categories, ...result.discoveredCategories])
+      );
+      if (mergedCategories.length !== categories.length) {
+        setCategories(mergedCategories);
+        saveCategories(channel, mergedCategories);
+      }
+
+      const nextItems = [...result.items, ...items];
+      setItems(nextItems);
+      saveMenuItems(channel, nextItems);
+
+      if (result.items[0]) {
+        triggerHighlight(result.items[0].id);
+      }
+
+      showToast(
+        `Berhasil mengimpor ${result.items.length} menu dari CSV${
+          result.skippedCount > 0 ? ` (${result.skippedCount} baris kosong dilewati)` : ''
+        }`,
+        true
+      );
+    },
+    [channel, presets, items, categories, triggerHighlight, showToast]
+  );
 
   // Sync to PostgreSQL DB (with fallback to client storage)
   const handleSyncDatabase = async () => {
@@ -458,28 +595,6 @@ export default function PricingEnginePage() {
       setIsSyncingDb(false);
     }
   };
-
-  // Precompute calculations map for all items
-  const calculations = useMemo(() => {
-    const map = new Map<string, CalculationResult>();
-    items.forEach((item) => {
-      const calc = calculateMenuItem({
-        targetOfflinePrice: item.targetOfflinePrice,
-        displayPrice: item.displayPrice,
-        merchantDiscountType: item.merchantDiscountType,
-        merchantDiscountValue: item.merchantDiscountValue,
-        platformCommissionPct: item.platformCommissionPct,
-        marketingBoosterPct: item.marketingBoosterPct,
-        isBoosterActive: item.isBoosterActive,
-        roundingRule: presets.roundingRule,
-        channel,
-        gojekSubsidyPct: item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
-        isCoFundedPromo: item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true,
-      });
-      map.set(item.id, calc);
-    });
-    return map;
-  }, [items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, channel]);
 
   // Count boncos
   const boncosCount = useMemo(() => {
@@ -587,11 +702,15 @@ export default function PricingEnginePage() {
           onDeleteItem={handleDeleteItem}
           onDuplicateItem={handleDuplicateItem}
           onApplyIdealPrice={handleApplyIdealPrice}
+          onBulkDeleteItems={handleBulkDeleteItems}
+          onBulkApplyIdealPrices={handleBulkApplyIdealPrices}
+          onBulkUpdateItems={handleBulkUpdateItems}
           onOpenReceiptModal={handleOpenReceiptModal}
           onOpenAddModal={() => setIsAddModalOpen(true)}
           onOpenEditModal={handleOpenEditModal}
           onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
           onExportCsv={handleExportCsv}
+          onImportCsv={handleImportCsv}
           highlightedItemId={highlightedItemId}
           isLoading={isPending}
         />
@@ -689,17 +808,16 @@ export default function PricingEnginePage() {
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
-          {toastCanUndo &&
-            (lastDeletedItem || lastEditedItemBefore || lastDeletedCategoryState) && (
-              <button
-                type="button"
-                onClick={handleUndo}
-                className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
-              >
-                <Undo2 className="w-3 h-3" />
-                <span>Urungkan</span>
-              </button>
-            )}
+          {toastCanUndo && undoSnapshot && (
+            <button
+              type="button"
+              onClick={handleUndo}
+              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+            >
+              <Undo2 className="w-3 h-3" />
+              <span>Urungkan</span>
+            </button>
+          )}
         </div>
       )}
     </main>

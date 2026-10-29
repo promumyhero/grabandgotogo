@@ -111,9 +111,10 @@ export function GlobalPresetBar({
               <span className="text-slate-500 font-medium">Subsidi Gojek:</span>
               <select
                 value={presets.gojekSubsidyPct ?? 25}
-                onChange={(e) =>
-                  updatePreset('gojekSubsidyPct', parseInt(e.target.value) || 25)
-                }
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10);
+                  updatePreset('gojekSubsidyPct', Number.isNaN(parsed) ? 25 : parsed);
+                }}
                 className="font-bold text-rose-700 bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 cursor-pointer"
                 title="Persentase subsidi dari program Maksimal PRO (Gojek menanggung 25% atau 30%, mitra menanggung sisanya)"
               >

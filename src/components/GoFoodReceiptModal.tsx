@@ -236,9 +236,20 @@ export function GoFoodReceiptModal({
           <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80 flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5 text-slate-700 font-semibold">
               <BadgePercent className="w-4 h-4 text-rose-600" />
-              <span>Program Maksimal PRO:</span>
+              <span>Subsidi Promo Gojek:</span>
             </div>
             <div className="flex items-center gap-1 bg-white border border-slate-200 p-0.5 rounded-lg shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setInteractiveSubsidy(0)}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  subsidyPct === 0
+                    ? 'bg-rose-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                0% (Mandiri)
+              </button>
               <button
                 type="button"
                 onClick={() => setInteractiveSubsidy(25)}
@@ -248,7 +259,7 @@ export function GoFoodReceiptModal({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Disubsidi 25%
+                25%
               </button>
               <button
                 type="button"
@@ -259,7 +270,7 @@ export function GoFoodReceiptModal({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Disubsidi 30%
+                30%
               </button>
             </div>
           </div>

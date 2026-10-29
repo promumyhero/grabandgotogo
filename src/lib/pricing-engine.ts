@@ -61,7 +61,7 @@ export function calculateForward(
   const safeDiscountVal = Math.max(0, merchantDiscountValue || 0);
   const safeCommPct = Math.max(0, platformCommissionPct || 0);
   const safeBoosterPct = Math.max(0, marketingBoosterPct || 0);
-  const safeSubsidyPct = Math.min(100, Math.max(0, gojekSubsidyPct || 0));
+  const safeSubsidyPct = Math.min(100, Math.max(0, gojekSubsidyPct ?? 25));
 
   if (channel === 'GOFOOD') {
     // ==========================================
@@ -234,22 +234,29 @@ export function calculateRecommendedPrice(
 
   const safeCommPct = Math.max(0, platformCommissionPct || 0);
   const safeBoosterPct = isBoosterActive ? Math.max(0, marketingBoosterPct || 0) : 0;
-  const safeSubsidyPct = Math.min(100, Math.max(0, gojekSubsidyPct || 0));
+  const safeSubsidyPct = Math.min(100, Math.max(0, gojekSubsidyPct ?? 25));
 
   let rawPrice = 0;
+  let isMathematicallyReachable = true;
 
   if (channel === 'GOFOOD') {
     // GoFood Reverse Formula
     // netPayout = (1 - komisi) x (displayPrice - mitraPromoShare) - GOFOOD_FIXED_FEE >= safeTarget
+    if (safeCommPct >= 100) {
+      isMathematicallyReachable = false;
+    }
     const keepFactor = 1 - Math.min(0.95, safeCommPct / 100);
     const requiredBase = (safeTarget + GOFOOD_FIXED_FEE) / keepFactor;
 
     if (merchantDiscountType === 'PERCENT') {
       const discFraction = (merchantDiscountValue || 0) / 100;
-      const mitraPromoFraction = Math.min(
-        0.95,
-        isCoFundedPromo ? discFraction * (1 - safeSubsidyPct / 100) : discFraction
-      );
+      const rawMitraPromoFraction = isCoFundedPromo
+        ? discFraction * (1 - safeSubsidyPct / 100)
+        : discFraction;
+      if (rawMitraPromoFraction >= 1) {
+        isMathematicallyReachable = false;
+      }
+      const mitraPromoFraction = Math.min(0.95, rawMitraPromoFraction);
       rawPrice = Math.ceil(requiredBase / (1 - mitraPromoFraction));
     } else {
       const nominalMitra = isCoFundedPromo
@@ -260,57 +267,51 @@ export function calculateRecommendedPrice(
   } else {
     // GrabFood Reverse Formula
     const totalGrabCutRate = (safeCommPct + safeBoosterPct) / 100;
+    if (totalGrabCutRate >= 1) {
+      isMathematicallyReachable = false;
+    }
     const clampedGrabRate = Math.min(0.95, totalGrabCutRate);
     const requiredSubtotal = Math.ceil(safeTarget / (1 - clampedGrabRate));
 
     if (merchantDiscountType === 'PERCENT') {
-      const discFraction = Math.min(0.95, (merchantDiscountValue || 0) / 100);
+      const rawDiscFraction = (merchantDiscountValue || 0) / 100;
+      if (rawDiscFraction >= 1) {
+        isMathematicallyReachable = false;
+      }
+      const discFraction = Math.min(0.95, rawDiscFraction);
       rawPrice = Math.ceil(requiredSubtotal / (1 - discFraction));
     } else {
       rawPrice = requiredSubtotal + Math.round(merchantDiscountValue || 0);
     }
   }
 
-  // Exact step-up / step-down verification loop:
-  // Step down to find the true lowest boundary
-  while (rawPrice > 0) {
-    const testDown = calculateForward(
-      rawPrice - 1,
-      safeTarget,
-      merchantDiscountType,
-      merchantDiscountValue,
-      platformCommissionPct,
-      marketingBoosterPct,
-      isBoosterActive,
-      channel,
-      safeSubsidyPct,
-      isCoFundedPromo
-    );
-    if (testDown.netPayout >= safeTarget) {
-      rawPrice -= 1;
-    } else {
-      break;
+  // Exact step-up / step-down verification loop (only if mathematically reachable):
+  if (isMathematicallyReachable) {
+    // Step down to find the true lowest boundary
+    let downGuard = 0;
+    while (rawPrice > 0 && downGuard < 100) {
+      const testDown = calculateForward(
+        rawPrice - 1,
+        safeTarget,
+        merchantDiscountType,
+        merchantDiscountValue,
+        platformCommissionPct,
+        marketingBoosterPct,
+        isBoosterActive,
+        channel,
+        safeSubsidyPct,
+        isCoFundedPromo
+      );
+      if (testDown.netPayout >= safeTarget) {
+        rawPrice -= 1;
+        downGuard++;
+      } else {
+        break;
+      }
     }
-  }
 
-  // Step up by 1 rupiah if test falls short of safeTarget
-  let testForward = calculateForward(
-    rawPrice,
-    safeTarget,
-    merchantDiscountType,
-    merchantDiscountValue,
-    platformCommissionPct,
-    marketingBoosterPct,
-    isBoosterActive,
-    channel,
-    safeSubsidyPct,
-    isCoFundedPromo
-  );
-
-  let loopGuard = 0;
-  while (testForward.netPayout < safeTarget && loopGuard < 100000) {
-    rawPrice += 1;
-    testForward = calculateForward(
+    // Step up by 1 rupiah if test falls short of safeTarget
+    let testForward = calculateForward(
       rawPrice,
       safeTarget,
       merchantDiscountType,
@@ -322,7 +323,24 @@ export function calculateRecommendedPrice(
       safeSubsidyPct,
       isCoFundedPromo
     );
-    loopGuard++;
+
+    let loopGuard = 0;
+    while (testForward.netPayout < safeTarget && loopGuard < 100) {
+      rawPrice += 1;
+      testForward = calculateForward(
+        rawPrice,
+        safeTarget,
+        merchantDiscountType,
+        merchantDiscountValue,
+        platformCommissionPct,
+        marketingBoosterPct,
+        isBoosterActive,
+        channel,
+        safeSubsidyPct,
+        isCoFundedPromo
+      );
+      loopGuard++;
+    }
   }
 
   const exactRecommendedPrice = rawPrice;
