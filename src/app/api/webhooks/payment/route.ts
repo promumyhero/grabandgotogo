@@ -14,7 +14,8 @@ interface QrisWebhookPayload {
 }
 
 /**
- * Validates HMAC SHA512 signature for QRIS webhook
+ * Validates HMAC SHA512 signature for QRIS webhook using constant-time comparison.
+ * When a serverKey is configured in the environment, a valid signature is strictly required.
  */
 function verifyWebhookSignature(
   orderId: string,
@@ -23,10 +24,22 @@ function verifyWebhookSignature(
   serverKey: string,
   receivedSignature?: string
 ): boolean {
-  if (!receivedSignature || !serverKey) return true; // allow testing when secret not configured
+  if (!serverKey) return true; // Only allow unsigned requests in local dev when secret is unset
+  if (!receivedSignature) return false;
+
   const input = `${orderId}${statusCode}${grossAmount}${serverKey}`;
-  const computed = crypto.createHash('sha512').update(input).digest('hex');
-  return computed === receivedSignature;
+  const computedHex = crypto.createHash('sha512').update(input).digest('hex');
+
+  try {
+    const computedBuf = Buffer.from(computedHex, 'hex');
+    const receivedBuf = Buffer.from(receivedSignature, 'hex');
+    if (computedBuf.length !== receivedBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(computedBuf, receivedBuf);
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -49,16 +62,24 @@ export async function POST(req: NextRequest) {
       status_code = '200',
     } = payload;
 
-    if (!order_id) {
+    if (!order_id || typeof order_id !== 'string' || !order_id.trim()) {
       return NextResponse.json(
         { error: 'Missing mandatory field: order_id' },
         { status: 422 }
       );
     }
 
-    // Optional signature verification check
+    const parsedAmount = Number(gross_amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+      return NextResponse.json(
+        { error: 'Invalid gross_amount: must be a non-negative number' },
+        { status: 422 }
+      );
+    }
+
+    // Strict HMAC verification when PAYMENT_GATEWAY_SERVER_KEY is configured
     const serverKey = process.env.PAYMENT_GATEWAY_SERVER_KEY || '';
-    if (serverKey && signature_key) {
+    if (serverKey) {
       const isValid = verifyWebhookSignature(
         order_id,
         status_code,
@@ -68,15 +89,18 @@ export async function POST(req: NextRequest) {
       );
       if (!isValid) {
         return NextResponse.json(
-          { error: 'Invalid HMAC signature' },
+          { error: 'Invalid or missing HMAC signature' },
           { status: 401 }
         );
       }
     }
 
-    const numericAmount = Math.round(Number(gross_amount) || 0);
+    const numericAmount = Math.round(parsedAmount);
     const isSettled =
       transaction_status === 'settlement' || transaction_status === 'capture';
+    const normalizedStatus = isSettled
+      ? 'SETTLED'
+      : String(transaction_status || 'PENDING').toUpperCase();
 
     // If live PostgreSQL connection is not active, return simulated idempotent response
     if (!isDatabaseConfigured || !prisma) {
@@ -87,7 +111,7 @@ export async function POST(req: NextRequest) {
         message:
           'Payment webhook received & acknowledged with simulated row-level locking.',
         order_id,
-        status: isSettled ? 'SETTLED' : transaction_status.toUpperCase(),
+        status: normalizedStatus,
         amount: numericAmount,
         timestamp: new Date().toISOString(),
       });
@@ -97,7 +121,6 @@ export async function POST(req: NextRequest) {
     const result = await prisma.$transaction(
       async (tx) => {
         // 1. Acquire pessimistic lock on the transaction row
-        // Raw query for Postgres Row-Level Lock
         const lockedRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
           SELECT id, status 
           FROM payment_transactions 
@@ -122,7 +145,7 @@ export async function POST(req: NextRequest) {
           await tx.paymentTransaction.update({
             where: { externalId: order_id },
             data: {
-              status: isSettled ? 'SETTLED' : transaction_status.toUpperCase(),
+              status: normalizedStatus,
               settledAt: isSettled ? new Date() : null,
               rawPayload: payload as unknown as object,
             },
@@ -130,18 +153,18 @@ export async function POST(req: NextRequest) {
 
           return {
             idempotentSkipped: false,
-            message: `Order ${order_id} status updated to ${isSettled ? 'SETTLED' : transaction_status}.`,
-            status: isSettled ? 'SETTLED' : transaction_status.toUpperCase(),
+            message: `Order ${order_id} status updated to ${normalizedStatus}.`,
+            status: normalizedStatus,
           };
         }
 
         // 2. If row doesn't exist yet, insert it atomically
-        // Find default merchant or create fallback
         let merchant = await tx.merchant.findFirst();
         if (!merchant) {
           merchant = await tx.merchant.create({
             data: {
               name: 'Merchant Utama',
+              email: 'owner@merchant.id',
             },
           });
         }
@@ -151,8 +174,8 @@ export async function POST(req: NextRequest) {
             externalId: order_id,
             merchantId: merchant.id,
             amount: numericAmount,
-            status: isSettled ? 'SETTLED' : transaction_status.toUpperCase(),
-            paymentMethod: payment_type.toUpperCase(),
+            status: normalizedStatus,
+            paymentMethod: String(payment_type || 'QRIS').toUpperCase(),
             rawPayload: payload as unknown as object,
             settledAt: isSettled ? new Date() : null,
           },
@@ -181,7 +204,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to process payment webhook',
-        details: error instanceof Error ? error.message : String(error),
+        ...(process.env.NODE_ENV === 'development' && {
+          details: error instanceof Error ? error.message : String(error),
+        }),
       },
       { status: 500 }
     );
