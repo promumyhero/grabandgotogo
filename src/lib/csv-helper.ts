@@ -6,6 +6,15 @@ import {
   WorkspaceChannel,
 } from '@/types/pricing';
 
+/**
+ * Escapes CSV text fields and neutralizes spreadsheet formula injection (CSV/DDE Injection)
+ * when a string starts with '=', '+', '-', '@', '\t', or '\r'.
+ */
+function escapeCsvCell(raw: string): string {
+  const sanitized = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${sanitized.replace(/"/g, '""')}"`;
+}
+
 export function exportPricingToCsv(
   items: MenuItem[],
   calculations: Map<string, CalculationResult>,
@@ -41,14 +50,14 @@ export function exportPricingToCsv(
     const isBoncos = calc ? calc.variance < 0 : false;
 
     return [
-      `"${item.id}"`,
-      `"${item.name.replace(/"/g, '""')}"`,
-      `"${(item.category || 'Menu').replace(/"/g, '""')}"`,
-      `"${channel}"`,
+      escapeCsvCell(item.id),
+      escapeCsvCell(item.name),
+      escapeCsvCell(item.category || 'Menu'),
+      escapeCsvCell(channel),
       item.targetOfflinePrice,
       item.displayPrice,
       calc ? calc.subtotalAfterDiscount : item.displayPrice,
-      `"${item.merchantDiscountType}"`,
+      escapeCsvCell(item.merchantDiscountType),
       item.merchantDiscountValue,
       calc ? calc.discountAmount : 0,
       item.platformCommissionPct,
@@ -66,7 +75,7 @@ export function exportPricingToCsv(
       isBoncos ? 'BONCOS' : 'AMAN',
       calc ? calc.recommendedDisplayPriceRounded : 0,
       calc ? calc.recommendedNetPayout : 0,
-      `"${(item.notes || '').replace(/"/g, '""')}"`,
+      escapeCsvCell(item.notes || ''),
     ].join(',');
   });
 
@@ -115,10 +124,8 @@ function parseCsvRow(line: string, delimiter: string): string[] {
 
 function cleanNumber(val: string | undefined, fallback: number): number {
   if (!val) return fallback;
-  // Remove currency symbols, spaces, thousand separators (dot if followed by 3 digits)
   const trimmed = val.replace(/[Rp\s]/gi, '').trim();
   if (!trimmed) return fallback;
-  // Handle Indonesian thousand format e.g. "30.000" vs decimal "20.5"
   const normalized = /^\d{1,3}(\.\d{3})+$/.test(trimmed)
     ? trimmed.replace(/\./g, '')
     : trimmed.replace(/[^0-9.-]/g, '');
@@ -155,7 +162,6 @@ export function parsePricingCsv(
     return { items: [], discoveredCategories: [], skippedCount: 0 };
   }
 
-  // Auto-detect delimiter (comma vs semicolon for Indonesian Excel)
   const headerLine = lines[0];
   const semicolonCount = (headerLine.match(/;/g) || []).length;
   const commaCount = (headerLine.match(/,/g) || []).length;
@@ -193,7 +199,6 @@ export function parsePricingCsv(
   const activeFlagIdx = findColIndex(['booster aktif', 'co-funding aktif', 'aktif']);
   const notesIdx = findColIndex(['catatan', 'notes', 'keterangan']);
 
-  // Fallback positional indices if simple 3-4 column CSV without standard headers
   const effectiveNameIdx = nameIdx >= 0 ? nameIdx : 0;
   const effectiveCategoryIdx = categoryIdx >= 0 ? categoryIdx : 1;
   const effectiveTargetIdx = targetIdx >= 0 ? targetIdx : 2;
@@ -203,17 +208,18 @@ export function parsePricingCsv(
   const discoveredCategoriesSet = new Set<string>();
   let skippedCount = 0;
   const nowIso = new Date().toISOString();
+  const batchToken = Math.random().toString(36).slice(2, 7);
 
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCsvRow(lines[i], delimiter).map((c) => c.replace(/^"|"$/g, '').trim());
-    const name = cols[effectiveNameIdx]?.trim();
+    const name = cols[effectiveNameIdx]?.replace(/^'+/, '').trim();
 
     if (!name) {
       skippedCount++;
       continue;
     }
 
-    const category = cols[effectiveCategoryIdx]?.trim() || 'Paket Nasi';
+    const category = cols[effectiveCategoryIdx]?.replace(/^'+/, '').trim() || 'Paket Nasi';
     discoveredCategoriesSet.add(category);
 
     const targetOfflinePrice = cleanNumber(cols[effectiveTargetIdx], 25000);
@@ -271,10 +277,11 @@ export function parsePricingCsv(
       }
     }
 
-    const notes = notesIdx >= 0 && cols[notesIdx] ? cols[notesIdx] : undefined;
+    const notes =
+      notesIdx >= 0 && cols[notesIdx] ? cols[notesIdx].replace(/^'+/, '').trim() : undefined;
 
     importedItems.push({
-      id: `${channel.toLowerCase()}-imp-${Date.now()}-${i}`,
+      id: `${channel.toLowerCase()}-imp-${Date.now()}-${batchToken}-${i}`,
       name,
       category,
       channel,

@@ -1,4 +1,11 @@
-import { GlobalPresets, MenuItem, WorkspaceChannel } from '@/types/pricing';
+import {
+  DiscountTemplate,
+  GlobalPresets,
+  MenuItem,
+  WorkspaceChannel,
+} from '@/types/pricing';
+
+export const DEMO_MAX_MENU_ITEMS = 5;
 
 export const DEFAULT_GRAB_PRESETS: GlobalPresets = {
   platformCommissionPct: 20,
@@ -19,6 +26,87 @@ export const DEFAULT_GOFOOD_PRESETS: GlobalPresets = {
   gojekSubsidyPct: 25, // Gojek Maksimal PRO subsidi 25% (mitra 75%)
   isCoFundedPromo: true,
 };
+
+export const BUILT_IN_DISCOUNT_TEMPLATES: DiscountTemplate[] = [
+  {
+    id: 'builtin-grab-reguler-30',
+    name: 'GrabFood Campaign 30% + Booster 14%',
+    channel: 'GRABFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 14,
+    isBoosterActiveDefault: true,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 30,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+  {
+    id: 'builtin-grab-hemat-20',
+    name: 'GrabFood Diskon 20% (Tanpa Booster)',
+    channel: 'GRABFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 14,
+    isBoosterActiveDefault: false,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 20,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+  {
+    id: 'builtin-grab-normal-0',
+    name: 'GrabFood Harga Normal (Komisi 20% Saja)',
+    channel: 'GRABFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 0,
+    isBoosterActiveDefault: false,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 0,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+  {
+    id: 'builtin-gofood-maksimal-25',
+    name: 'GoFood Maksimal PRO (Diskon 15% • Subsidi 25%)',
+    channel: 'GOFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 0,
+    isBoosterActiveDefault: false,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 15,
+    gojekSubsidyPct: 25,
+    isCoFundedPromo: true,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+  {
+    id: 'builtin-gofood-mandiri-10',
+    name: 'GoFood Promo Mandiri 10% (Tanpa Subsidi)',
+    channel: 'GOFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 0,
+    isBoosterActiveDefault: false,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 10,
+    gojekSubsidyPct: 0,
+    isCoFundedPromo: false,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+  {
+    id: 'builtin-gofood-normal-0',
+    name: 'GoFood Harga Normal (Komisi 20% + Rp 800)',
+    channel: 'GOFOOD',
+    platformCommissionPct: 20,
+    marketingBoosterPct: 0,
+    isBoosterActiveDefault: false,
+    merchantDiscountType: 'PERCENT',
+    merchantDiscountValue: 0,
+    gojekSubsidyPct: 25,
+    isCoFundedPromo: false,
+    roundingRule: 'CEIL_500',
+    isBuiltIn: true,
+  },
+];
 
 export const INITIAL_GRAB_MENU_ITEMS: MenuItem[] = [
   {
@@ -96,11 +184,11 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
     targetOfflinePrice: 28000,
     displayPrice: 45950,
     merchantDiscountType: 'NOMINAL',
-    merchantDiscountValue: 4600, // Diskon konsumen Rp 4.600
+    merchantDiscountValue: 4600,
     platformCommissionPct: 20,
     marketingBoosterPct: 0,
     isBoosterActive: false,
-    gojekSubsidyPct: 25, // Gojek 25% (Rp 1.150), Mitra 75% (Rp 3.450)
+    gojekSubsidyPct: 25,
     isCoFundedPromo: true,
     notes: 'Struk Nyata F-3388856614: Payout Rp 33.200 (Surplus +Rp 5.200 vs Offline 28k)',
     createdAt: new Date().toISOString(),
@@ -114,11 +202,11 @@ export const INITIAL_GOFOOD_MENU_ITEMS: MenuItem[] = [
     targetOfflinePrice: 28000,
     displayPrice: 47850,
     merchantDiscountType: 'NOMINAL',
-    merchantDiscountValue: 20160, // Diskon voucher konsumen Rp 20.160
+    merchantDiscountValue: 20160,
     platformCommissionPct: 20,
     marketingBoosterPct: 0,
     isBoosterActive: false,
-    gojekSubsidyPct: 25, // Mitra 75% (Rp 15.120), Gojek 25% (Rp 5.040)
+    gojekSubsidyPct: 25,
     isCoFundedPromo: true,
     notes: 'Struk Nyata F-3392285639: Payout Rp 25.384 (Defisit -Rp 2.616 vs Offline Rp 28k)',
     createdAt: new Date().toISOString(),
@@ -195,28 +283,41 @@ export const DEFAULT_GOFOOD_CATEGORIES: string[] = [
   'GoFood Best Seller',
 ];
 
-const STORAGE_KEYS = {
-  GRABFOOD_ITEMS: 'fmp_grabfood_items_v2',
-  GOFOOD_ITEMS: 'fmp_gofood_items_v3',
-  GRABFOOD_PRESETS: 'fmp_grabfood_presets_v2',
-  GOFOOD_PRESETS: 'fmp_gofood_presets_v3',
-  GRABFOOD_CATEGORIES: 'fmp_grabfood_categories_v1',
-  GOFOOD_CATEGORIES: 'fmp_gofood_categories_v1',
-  ACTIVE_CHANNEL: 'fmp_active_channel_v2',
-};
+function getScopePrefix(merchantId?: string | null): string {
+  if (!merchantId || !merchantId.trim()) return 'fmp_demo';
+  const safeId = merchantId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+  return `fmp_u_${safeId}`;
+}
 
-export function loadCategories(channel: WorkspaceChannel): string[] {
+function getScopedKeys(merchantId?: string | null) {
+  const prefix = getScopePrefix(merchantId);
+  return {
+    GRABFOOD_ITEMS: `${prefix}_grabfood_items_v2`,
+    GOFOOD_ITEMS: `${prefix}_gofood_items_v3`,
+    GRABFOOD_PRESETS: `${prefix}_grabfood_presets_v2`,
+    GOFOOD_PRESETS: `${prefix}_gofood_presets_v3`,
+    GRABFOOD_CATEGORIES: `${prefix}_grabfood_categories_v1`,
+    GOFOOD_CATEGORIES: `${prefix}_gofood_categories_v1`,
+    GRABFOOD_TEMPLATES: `${prefix}_grabfood_templates_v1`,
+    GOFOOD_TEMPLATES: `${prefix}_gofood_templates_v1`,
+    ACTIVE_CHANNEL: `${prefix}_active_channel_v2`,
+  };
+}
+
+export function loadCategories(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): string[] {
   const fallback =
     channel === 'GOFOOD' ? DEFAULT_GOFOOD_CATEGORIES : DEFAULT_GRAB_CATEGORIES;
   if (typeof window === 'undefined') return fallback;
   try {
+    const keys = getScopedKeys(merchantId);
     const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_CATEGORIES
-        : STORAGE_KEYS.GRABFOOD_CATEGORIES;
+      channel === 'GOFOOD' ? keys.GOFOOD_CATEGORIES : keys.GRABFOOD_CATEGORIES;
     const raw = localStorage.getItem(key);
     if (!raw) {
-      saveCategories(channel, fallback);
+      saveCategories(channel, fallback, merchantId);
       return fallback;
     }
     const parsed = JSON.parse(raw);
@@ -227,89 +328,110 @@ export function loadCategories(channel: WorkspaceChannel): string[] {
   }
 }
 
-export function saveCategories(channel: WorkspaceChannel, categories: string[]): void {
+export function saveCategories(
+  channel: WorkspaceChannel,
+  categories: string[],
+  merchantId?: string | null
+): void {
   if (typeof window === 'undefined') return;
   try {
+    const keys = getScopedKeys(merchantId);
     const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_CATEGORIES
-        : STORAGE_KEYS.GRABFOOD_CATEGORIES;
+      channel === 'GOFOOD' ? keys.GOFOOD_CATEGORIES : keys.GRABFOOD_CATEGORIES;
     localStorage.setItem(key, JSON.stringify(categories));
   } catch (e) {
     console.error('Failed to save categories to localStorage:', e);
   }
 }
 
-export function getStoredActiveChannel(): WorkspaceChannel {
+export function getStoredActiveChannel(merchantId?: string | null): WorkspaceChannel {
   if (typeof window === 'undefined') return 'GRABFOOD';
   try {
-    const val = localStorage.getItem(STORAGE_KEYS.ACTIVE_CHANNEL);
+    const keys = getScopedKeys(merchantId);
+    const val = localStorage.getItem(keys.ACTIVE_CHANNEL);
     return val === 'GOFOOD' ? 'GOFOOD' : 'GRABFOOD';
   } catch {
     return 'GRABFOOD';
   }
 }
 
-export function setStoredActiveChannel(channel: WorkspaceChannel): void {
+export function setStoredActiveChannel(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_CHANNEL, channel);
+    const keys = getScopedKeys(merchantId);
+    localStorage.setItem(keys.ACTIVE_CHANNEL, channel);
   } catch {
     // ignore
   }
 }
 
-export function loadMenuItems(channel: WorkspaceChannel): MenuItem[] {
+export function loadMenuItems(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): MenuItem[] {
   if (typeof window === 'undefined') {
-    return channel === 'GOFOOD' ? INITIAL_GOFOOD_MENU_ITEMS : INITIAL_GRAB_MENU_ITEMS;
+    return channel === 'GOFOOD'
+      ? INITIAL_GOFOOD_MENU_ITEMS
+      : INITIAL_GRAB_MENU_ITEMS;
   }
   try {
-    const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_ITEMS
-        : STORAGE_KEYS.GRABFOOD_ITEMS;
+    const keys = getScopedKeys(merchantId);
+    const key = channel === 'GOFOOD' ? keys.GOFOOD_ITEMS : keys.GRABFOOD_ITEMS;
     const raw = localStorage.getItem(key);
     if (!raw) {
       const initial =
-        channel === 'GOFOOD' ? INITIAL_GOFOOD_MENU_ITEMS : INITIAL_GRAB_MENU_ITEMS;
-      saveMenuItems(channel, initial);
+        channel === 'GOFOOD'
+          ? INITIAL_GOFOOD_MENU_ITEMS
+          : INITIAL_GRAB_MENU_ITEMS;
+      saveMenuItems(channel, initial, merchantId);
       return initial;
     }
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) && parsed.length > 0
       ? parsed
-      : (channel === 'GOFOOD' ? INITIAL_GOFOOD_MENU_ITEMS : INITIAL_GRAB_MENU_ITEMS);
+      : channel === 'GOFOOD'
+        ? INITIAL_GOFOOD_MENU_ITEMS
+        : INITIAL_GRAB_MENU_ITEMS;
   } catch (e) {
     console.error('Failed to load menu items from localStorage:', e);
-    return channel === 'GOFOOD' ? INITIAL_GOFOOD_MENU_ITEMS : INITIAL_GRAB_MENU_ITEMS;
+    return channel === 'GOFOOD'
+      ? INITIAL_GOFOOD_MENU_ITEMS
+      : INITIAL_GRAB_MENU_ITEMS;
   }
 }
 
-export function saveMenuItems(channel: WorkspaceChannel, items: MenuItem[]): void {
+export function saveMenuItems(
+  channel: WorkspaceChannel,
+  items: MenuItem[],
+  merchantId?: string | null
+): void {
   if (typeof window === 'undefined') return;
   try {
-    const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_ITEMS
-        : STORAGE_KEYS.GRABFOOD_ITEMS;
+    const keys = getScopedKeys(merchantId);
+    const key = channel === 'GOFOOD' ? keys.GOFOOD_ITEMS : keys.GRABFOOD_ITEMS;
     localStorage.setItem(key, JSON.stringify(items));
   } catch (e) {
     console.error('Failed to save menu items to localStorage:', e);
   }
 }
 
-export function loadPresets(channel: WorkspaceChannel): GlobalPresets {
+export function loadPresets(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): GlobalPresets {
   const fallback =
     channel === 'GOFOOD' ? DEFAULT_GOFOOD_PRESETS : DEFAULT_GRAB_PRESETS;
   if (typeof window === 'undefined') return fallback;
   try {
+    const keys = getScopedKeys(merchantId);
     const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_PRESETS
-        : STORAGE_KEYS.GRABFOOD_PRESETS;
+      channel === 'GOFOOD' ? keys.GOFOOD_PRESETS : keys.GRABFOOD_PRESETS;
     const raw = localStorage.getItem(key);
     if (!raw) {
-      savePresets(channel, fallback);
+      savePresets(channel, fallback, merchantId);
       return fallback;
     }
     return { ...fallback, ...JSON.parse(raw) };
@@ -319,34 +441,86 @@ export function loadPresets(channel: WorkspaceChannel): GlobalPresets {
   }
 }
 
-export function savePresets(channel: WorkspaceChannel, presets: GlobalPresets): void {
+export function savePresets(
+  channel: WorkspaceChannel,
+  presets: GlobalPresets,
+  merchantId?: string | null
+): void {
   if (typeof window === 'undefined') return;
   try {
+    const keys = getScopedKeys(merchantId);
     const key =
-      channel === 'GOFOOD'
-        ? STORAGE_KEYS.GOFOOD_PRESETS
-        : STORAGE_KEYS.GRABFOOD_PRESETS;
+      channel === 'GOFOOD' ? keys.GOFOOD_PRESETS : keys.GRABFOOD_PRESETS;
     localStorage.setItem(key, JSON.stringify(presets));
   } catch (e) {
     console.error('Failed to save presets to localStorage:', e);
   }
 }
 
-export function resetWorkspaceToDefaults(channel: WorkspaceChannel): {
+export function loadDiscountTemplates(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): DiscountTemplate[] {
+  const builtIn = BUILT_IN_DISCOUNT_TEMPLATES.filter((t) => t.channel === channel);
+  if (typeof window === 'undefined') return builtIn;
+  try {
+    const keys = getScopedKeys(merchantId);
+    const key =
+      channel === 'GOFOOD' ? keys.GOFOOD_TEMPLATES : keys.GRABFOOD_TEMPLATES;
+    const raw = localStorage.getItem(key);
+    if (!raw) return builtIn;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return builtIn;
+    const custom = parsed.filter(
+      (t: DiscountTemplate) => t && !t.isBuiltIn && t.channel === channel
+    );
+    return [...builtIn, ...custom];
+  } catch {
+    return builtIn;
+  }
+}
+
+export function saveDiscountTemplates(
+  channel: WorkspaceChannel,
+  templates: DiscountTemplate[],
+  merchantId?: string | null
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys = getScopedKeys(merchantId);
+    const key =
+      channel === 'GOFOOD' ? keys.GOFOOD_TEMPLATES : keys.GRABFOOD_TEMPLATES;
+    const customOnly = templates.filter((t) => !t.isBuiltIn);
+    localStorage.setItem(key, JSON.stringify(customOnly));
+  } catch (e) {
+    console.error('Failed to save discount templates:', e);
+  }
+}
+
+export function resetWorkspaceToDefaults(
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+): {
   items: MenuItem[];
   presets: GlobalPresets;
   categories: string[];
 } {
   const items =
-    channel === 'GOFOOD' ? [...INITIAL_GOFOOD_MENU_ITEMS] : [...INITIAL_GRAB_MENU_ITEMS];
+    channel === 'GOFOOD'
+      ? [...INITIAL_GOFOOD_MENU_ITEMS]
+      : [...INITIAL_GRAB_MENU_ITEMS];
   const presets =
-    channel === 'GOFOOD' ? { ...DEFAULT_GOFOOD_PRESETS } : { ...DEFAULT_GRAB_PRESETS };
+    channel === 'GOFOOD'
+      ? { ...DEFAULT_GOFOOD_PRESETS }
+      : { ...DEFAULT_GRAB_PRESETS };
   const categories =
-    channel === 'GOFOOD' ? [...DEFAULT_GOFOOD_CATEGORIES] : [...DEFAULT_GRAB_CATEGORIES];
+    channel === 'GOFOOD'
+      ? [...DEFAULT_GOFOOD_CATEGORIES]
+      : [...DEFAULT_GRAB_CATEGORIES];
 
-  saveMenuItems(channel, items);
-  savePresets(channel, presets);
-  saveCategories(channel, categories);
+  saveMenuItems(channel, items, merchantId);
+  savePresets(channel, presets, merchantId);
+  saveCategories(channel, categories, merchantId);
 
   return { items, presets, categories };
 }
