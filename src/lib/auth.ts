@@ -82,6 +82,7 @@ export async function getSessionUser(): Promise<AuthUser | null> {
                 id: true,
                 name: true,
                 email: true,
+                phone: true,
                 createdAt: true,
               },
             },
@@ -96,6 +97,7 @@ export async function getSessionUser(): Promise<AuthUser | null> {
             id: dbSession.merchant.id,
             name: dbSession.merchant.name,
             email: dbSession.merchant.email,
+            phone: dbSession.merchant.phone ?? undefined,
             createdAt: dbSession.merchant.createdAt.toISOString(),
           };
         }
