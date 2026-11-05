@@ -1,4 +1,4 @@
-// Prisma schema for FoodMerchant Pricing & Margin Engine
+// Prisma schema for FoodMerchant Pricing & Margin Engine (Supabase PostgreSQL)
 
 generator client {
   provider = "prisma-client-js"
@@ -19,31 +19,76 @@ enum DiscountType {
 }
 
 model Merchant {
-  id           String               @id @default(cuid())
-  name         String
-  email        String?              @unique
-  phone        String?
-  workspaces   Workspace[]
-  transactions PaymentTransaction[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  id                String               @id @default(cuid())
+  name              String
+  email             String               @unique
+  passwordHash      String?
+  phone             String?
+  workspaces        Workspace[]
+  sessions          MerchantSession[]
+  discountTemplates DiscountTemplate[]
+  transactions      PaymentTransaction[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
+  @@index([email])
   @@map("merchants")
 }
 
+model MerchantSession {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  userAgent  String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([merchantId])
+  @@index([expiresAt])
+  @@map("merchant_sessions")
+}
+
+model DiscountTemplate {
+  id                     String           @id @default(cuid())
+  merchantId             String
+  merchant               Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name                   String
+  channel                WorkspaceChannel @default(GRABFOOD)
+  platformCommissionPct  Float            @default(20.0)
+  marketingBoosterPct    Float            @default(14.0)
+  isBoosterActiveDefault Boolean          @default(true)
+  merchantDiscountType   DiscountType     @default(PERCENT)
+  merchantDiscountValue  Float            @default(30.0)
+  gojekSubsidyPct        Float            @default(25.0)
+  isCoFundedPromo        Boolean          @default(true)
+  roundingRule           String           @default("CEIL_500")
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  @@index([merchantId, channel])
+  @@map("discount_templates")
+}
+
 model Workspace {
-  id                   String           @id @default(cuid())
-  merchantId           String
-  merchant             Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  channel              WorkspaceChannel @default(GRABFOOD)
-  name                 String
-  defaultCommissionPct Float            @default(20.0)
-  defaultBoosterPct    Float            @default(14.0)
-  defaultDiscountPct   Float            @default(30.0)
-  roundingRule         String           @default("CEIL_500") // EXACT, CEIL_100, CEIL_500, CEIL_1000
-  menuItems            MenuItem[]
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  id                     String           @id @default(cuid())
+  merchantId             String
+  merchant               Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  channel                WorkspaceChannel @default(GRABFOOD)
+  name                   String
+  defaultCommissionPct   Float            @default(20.0)
+  defaultBoosterPct      Float            @default(14.0)
+  defaultDiscountPct     Float            @default(30.0)
+  defaultDiscountType    DiscountType     @default(PERCENT)
+  isBoosterActiveDefault Boolean          @default(true)
+  gojekSubsidyPct        Float            @default(25.0)
+  isCoFundedPromo        Boolean          @default(true)
+  roundingRule           String           @default("CEIL_500")
+  categories             Json?
+  menuItems              MenuItem[]
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   @@unique([merchantId, channel])
   @@index([merchantId, channel])
@@ -51,23 +96,25 @@ model Workspace {
 }
 
 model MenuItem {
-  id                    String             @id @default(cuid())
-  workspaceId           String
-  workspace             Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name                  String
-  category              String             @default("Makanan Utama")
-  targetOfflinePrice    Int
-  displayPrice          Int
-  discountType          DiscountType       @default(PERCENT)
-  discountValue         Float              @default(30.0)
-  commissionPct         Float              @default(20.0)
-  boosterPct            Float              @default(14.0)
-  isBoosterActive       Boolean            @default(true)
-  notes                 String?
-  sortOrder             Int                @default(0)
-  audits                CalculationAudit[]
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name               String
+  category           String             @default("Makanan Utama")
+  targetOfflinePrice Int
+  displayPrice       Int
+  discountType       DiscountType       @default(PERCENT)
+  discountValue      Float              @default(30.0)
+  commissionPct      Float              @default(20.0)
+  boosterPct         Float              @default(14.0)
+  isBoosterActive    Boolean            @default(true)
+  gojekSubsidyPct    Float              @default(25.0)
+  isCoFundedPromo    Boolean            @default(true)
+  notes              String?
+  sortOrder          Int                @default(0)
+  audits             CalculationAudit[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([workspaceId, category])
   @@index([workspaceId, sortOrder])
@@ -75,31 +122,31 @@ model MenuItem {
 }
 
 model CalculationAudit {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   menuItemId   String
-  menuItem     MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   displayPrice Int
   netPayout    Int
   variance     Int
   isLoss       Boolean
-  executedAt   DateTime  @default(now())
+  executedAt   DateTime @default(now())
 
   @@index([menuItemId, executedAt])
   @@map("calculation_audits")
 }
 
 model PaymentTransaction {
-  id            String   @id @default(cuid())
-  externalId    String   @unique // Idempotency key from QRIS provider (e.g. Midtrans / Xendit / Gopay)
+  id            String    @id @default(cuid())
+  externalId    String    @unique
   merchantId    String
-  merchant      Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchant      Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   amount        Int
-  status        String   // PENDING, SETTLED, EXPIRED, FAILED
-  paymentMethod String   @default("QRIS")
+  status        String
+  paymentMethod String    @default("QRIS")
   rawPayload    Json?
   settledAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([merchantId, status])
   @@index([externalId])

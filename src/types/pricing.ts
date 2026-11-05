@@ -4,6 +4,28 @@ export type DiscountType = 'PERCENT' | 'NOMINAL';
 
 export type RoundingRule = 'EXACT' | 'CEIL_100' | 'CEIL_500' | 'CEIL_1000';
 
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  createdAt?: string;
+}
+
+export interface DiscountTemplate {
+  id: string;
+  name: string;
+  channel: WorkspaceChannel;
+  platformCommissionPct: number;
+  marketingBoosterPct: number;
+  isBoosterActiveDefault: boolean;
+  merchantDiscountType: DiscountType;
+  merchantDiscountValue: number;
+  gojekSubsidyPct?: number;
+  isCoFundedPromo?: boolean;
+  roundingRule: RoundingRule;
+  isBuiltIn?: boolean;
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -72,48 +94,3 @@ export interface GlobalPresets {
   gojekSubsidyPct?: number; // 25% default from Gojek Maksimal PRO
   isCoFundedPromo?: boolean;
 }
-
-export interface ReceiptLineItem {
-  label: string;
-  amount: number;
-  isNegative?: boolean;
-  isHighlight?: boolean;
-  annotation?: string;
-}
-
-export interface GrabReceiptData {
-  orderNumber: string;
-  orderTimestamp: string;
-  menuItemName: string;
-  displayPrice: number;
-  discountType: DiscountType;
-  discountValue: number;
-  discountAmount: number;
-  customerPaidSubtotal: number;
-  platformCommissionPct: number;
-  platformCommissionFee: number;
-  marketingBoosterPct: number;
-  isBoosterActive: boolean;
-  marketingBoosterFee: number;
-  totalPlatformDeduction: number;
-  netPayoutToMerchant: number;
-  targetOfflinePrice: number;
-  variance: number;
-}
-
-export interface GoFoodReceiptData {
-  orderNumber: string;
-  orderTimestamp: string;
-  menuItemName: string;
-  penjualan: number; // e.g. Rp 45.950
-  biayaLayananDelivery: number; // e.g. -Rp 9.300 (20%)
-  biayaDitanggungMitra: number; // e.g. -Rp 3.450
-  disubsidiGojekPct: number; // e.g. 25%
-  totalDiskonKonsumen: number; // e.g. Rp 4.600
-  subsidiGojekAmount: number; // e.g. Rp 1.150
-  totalPendapatanBersih: number; // e.g. Rp 33.200
-  targetOfflinePrice: number; // e.g. Rp 28.000
-  variance: number; // e.g. +Rp 5.200
-  category: string; // 'Gojek Plus'
-}
-
