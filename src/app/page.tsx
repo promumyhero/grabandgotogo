@@ -4,11 +4,15 @@ import React, {
   useState,
   useMemo,
   useCallback,
+  useRef,
+  useEffect,
   useSyncExternalStore,
   useTransition,
 } from 'react';
 import dynamic from 'next/dynamic';
 import {
+  AuthUser,
+  DiscountTemplate,
   GlobalPresets,
   MenuItem,
   WorkspaceChannel,
@@ -19,12 +23,15 @@ import {
   calculateRecommendedPrice,
 } from '@/lib/pricing-engine';
 import {
+  DEMO_MAX_MENU_ITEMS,
   loadMenuItems,
   saveMenuItems,
   loadPresets,
   savePresets,
   loadCategories,
   saveCategories,
+  loadDiscountTemplates,
+  saveDiscountTemplates,
   getStoredActiveChannel,
   setStoredActiveChannel,
   resetWorkspaceToDefaults,
@@ -35,16 +42,18 @@ import { KpiSummaryCards } from '@/components/KpiSummaryCards';
 import { GlobalPresetBar } from '@/components/GlobalPresetBar';
 import { PricingTable } from '@/components/PricingTable';
 import { DashboardSkeleton } from '@/components/DashboardSkeleton';
+import { ModalSkeleton } from '@/components/ModalSkeleton';
 import {
-  UtensilsCrossed,
-  ShieldCheck,
-  CheckCircle2,
   Undo2,
+  BookOpen,
+  Store,
+  LogOut,
+  LogIn,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react';
 
-import { ModalSkeleton } from '@/components/ModalSkeleton';
-
-// Lazy loaded modals with skeleton fallbacks for instant visual feedback and optimal performance
+// Lazy loaded modals with skeleton fallbacks
 const GrabReceiptModal = dynamic(
   () => import('@/components/GrabReceiptModal').then((mod) => mod.GrabReceiptModal),
   { ssr: false, loading: () => <ModalSkeleton type="receipt" /> }
@@ -70,6 +79,19 @@ const ManageCategoriesModal = dynamic(
   { ssr: false, loading: () => <ModalSkeleton type="category" /> }
 );
 
+const AuthModal = dynamic(
+  () => import('@/components/AuthModal').then((mod) => mod.AuthModal),
+  { ssr: false }
+);
+
+const PricingEducationModal = dynamic(
+  () =>
+    import('@/components/PricingEducationModal').then(
+      (mod) => mod.PricingEducationModal
+    ),
+  { ssr: false }
+);
+
 const subscribeNoop = () => () => {};
 
 export default function PricingEnginePage() {
@@ -79,11 +101,31 @@ export default function PricingEnginePage() {
     () => false
   );
 
+  // Auth & Tenant Isolation State
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+  const [authGateReason, setAuthGateReason] = useState<string | null>(null);
+  const [isEducationModalOpen, setIsEducationModalOpen] = useState(false);
+
+  const activeMerchantId = authUser?.id ?? null;
+
   const [isPending, startTransition] = useTransition();
-  const [channel, setChannel] = useState<WorkspaceChannel>(getStoredActiveChannel);
-  const [items, setItems] = useState<MenuItem[]>(() => loadMenuItems(getStoredActiveChannel()));
-  const [presets, setPresets] = useState<GlobalPresets>(() => loadPresets(getStoredActiveChannel()));
-  const [categories, setCategories] = useState<string[]>(() => loadCategories(getStoredActiveChannel()));
+  const [channel, setChannel] = useState<WorkspaceChannel>(() =>
+    getStoredActiveChannel(null)
+  );
+  const [items, setItems] = useState<MenuItem[]>(() =>
+    loadMenuItems(getStoredActiveChannel(null), null)
+  );
+  const [presets, setPresets] = useState<GlobalPresets>(() =>
+    loadPresets(getStoredActiveChannel(null), null)
+  );
+  const [categories, setCategories] = useState<string[]>(() =>
+    loadCategories(getStoredActiveChannel(null), null)
+  );
+  const [discountTemplates, setDiscountTemplates] = useState<DiscountTemplate[]>(() =>
+    loadDiscountTemplates(getStoredActiveChannel(null), null)
+  );
 
   // Modals state
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
@@ -93,7 +135,7 @@ export default function PricingEnginePage() {
   const [selectedEditItem, setSelectedEditItem] = useState<MenuItem | null>(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
-  // Micro-interaction Highlight & Unified Undo Snapshot state
+  // Highlight & Undo Snapshot state
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   const [undoSnapshot, setUndoSnapshot] = useState<{
     restoreToast: string;
@@ -111,26 +153,132 @@ export default function PricingEnginePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastCanUndo, setToastCanUndo] = useState(false);
 
-  const triggerHighlight = useCallback((id: string) => {
-    setHighlightedItemId(id);
-    setTimeout(() => {
-      setHighlightedItemId((prev) => (prev === id ? null : prev));
-    }, 2200);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
   }, []);
 
   const showToast = useCallback((msg: string, allowUndo: boolean = false) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToastMessage(msg);
     setToastCanUndo(allowUndo);
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
       setToastCanUndo(false);
     }, 5000);
   }, []);
 
+  // Load workspace from Supabase PostgreSQL when user is authenticated
+  const fetchCloudWorkspace = useCallback(
+    async (targetChannel: WorkspaceChannel, merchantId: string) => {
+      try {
+        const res = await fetch(
+          `/api/pricings/workspace?channel=${targetChannel}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (Array.isArray(data.discountTemplates)) {
+          setDiscountTemplates(data.discountTemplates);
+          saveDiscountTemplates(
+            targetChannel,
+            data.discountTemplates,
+            merchantId
+          );
+        }
+
+        if (data.workspace) {
+          if (data.workspace.presets) {
+            setPresets(data.workspace.presets);
+            savePresets(targetChannel, data.workspace.presets, merchantId);
+          }
+          if (
+            Array.isArray(data.workspace.categories) &&
+            data.workspace.categories.length > 0
+          ) {
+            setCategories(data.workspace.categories);
+            saveCategories(
+              targetChannel,
+              data.workspace.categories,
+              merchantId
+            );
+          }
+          if (
+            Array.isArray(data.workspace.items) &&
+            data.workspace.items.length > 0
+          ) {
+            setItems(data.workspace.items);
+            saveMenuItems(targetChannel, data.workspace.items, merchantId);
+          }
+        }
+      } catch {
+        // Fallback silently to tenant-scoped localStorage
+      }
+    },
+    []
+  );
+
+  // Check active session on mount
+  useEffect(() => {
+    if (!isClient) return;
+    let active = true;
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!active) return;
+        if (data?.authenticated && data?.user) {
+          const user: AuthUser = data.user;
+          setAuthUser(user);
+          const storedCh = getStoredActiveChannel(user.id);
+          setChannel(storedCh);
+          setItems(loadMenuItems(storedCh, user.id));
+          setPresets(loadPresets(storedCh, user.id));
+          setCategories(loadCategories(storedCh, user.id));
+          setDiscountTemplates(loadDiscountTemplates(storedCh, user.id));
+          fetchCloudWorkspace(storedCh, user.id);
+        }
+      })
+      .catch(() => {
+        // Remain in Demo Mode if session check fails
+      });
+    return () => {
+      active = false;
+    };
+  }, [isClient, fetchCloudWorkspace]);
+
+  // Persist items to tenant-scoped localStorage whenever items or channel changes
+  useEffect(() => {
+    if (!isClient) return;
+    saveMenuItems(channel, items, activeMerchantId);
+  }, [isClient, channel, items, activeMerchantId]);
+
+  const requireAuth = useCallback((reason: string) => {
+    setAuthGateReason(reason);
+    setAuthModalMode('login');
+    setIsAuthModalOpen(true);
+  }, []);
+
+  const triggerHighlight = useCallback((id: string) => {
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    setHighlightedItemId(id);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedItemId((prev) => (prev === id ? null : prev));
+    }, 1800);
+  }, []);
+
   // Precompute calculations map for all items
   const calculations = useMemo(() => {
     const map = new Map<string, CalculationResult>();
-    items.forEach((item) => {
+    for (const item of items) {
       const calc = calculateMenuItem({
         targetOfflinePrice: item.targetOfflinePrice,
         displayPrice: item.displayPrice,
@@ -145,42 +293,111 @@ export default function PricingEnginePage() {
         isCoFundedPromo: item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true,
       });
       map.set(item.id, calc);
-    });
+    }
     return map;
-  }, [items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, channel]);
+  }, [
+    items,
+    presets.roundingRule,
+    presets.gojekSubsidyPct,
+    presets.isCoFundedPromo,
+    channel,
+  ]);
 
   // Handle Channel Change with smooth transition
-  const handleChannelChange = (newChannel: WorkspaceChannel) => {
-    startTransition(() => {
-      setChannel(newChannel);
-      setStoredActiveChannel(newChannel);
-      const loadedItems = loadMenuItems(newChannel);
-      const loadedPresets = loadPresets(newChannel);
-      const loadedCategories = loadCategories(newChannel);
-      setItems(loadedItems);
-      setPresets(loadedPresets);
-      setCategories(loadedCategories);
-      setUndoSnapshot(null);
-    });
-    showToast(`Beralih ke workspace ${newChannel === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}`);
-  };
-
-  // Synchronize item updates
-  const handleUpdateItem = useCallback(
-    (id: string, updates: Partial<MenuItem>) => {
-      setItems((prev) => {
-        const next = prev.map((it) =>
-          it.id === id ? { ...it, ...updates, updatedAt: new Date().toISOString() } : it
-        );
-        saveMenuItems(channel, next);
-        return next;
+  const handleChannelChange = useCallback(
+    (newChannel: WorkspaceChannel) => {
+      startTransition(() => {
+        setChannel(newChannel);
+        setStoredActiveChannel(newChannel, activeMerchantId);
+        setItems(loadMenuItems(newChannel, activeMerchantId));
+        setPresets(loadPresets(newChannel, activeMerchantId));
+        setCategories(loadCategories(newChannel, activeMerchantId));
+        setDiscountTemplates(loadDiscountTemplates(newChannel, activeMerchantId));
+        setUndoSnapshot(null);
       });
-      triggerHighlight(id);
+      if (activeMerchantId) {
+        fetchCloudWorkspace(newChannel, activeMerchantId);
+      }
+      showToast(
+        `Beralih ke workspace ${newChannel === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}`
+      );
     },
-    [channel, triggerHighlight]
+    [activeMerchantId, fetchCloudWorkspace, showToast]
   );
 
-  // Delete item with Undo capability
+  // Handle Login / Registration Success
+  const handleAuthSuccess = useCallback(
+    async (user: AuthUser, migrateDemoData: boolean) => {
+      const demoItems = [...items];
+      const demoPresets = { ...presets };
+      const demoCategories = [...categories];
+
+      setAuthUser(user);
+      setAuthGateReason(null);
+
+      if (migrateDemoData) {
+        saveMenuItems(channel, demoItems, user.id);
+        savePresets(channel, demoPresets, user.id);
+        saveCategories(channel, demoCategories, user.id);
+        setItems(demoItems);
+        setPresets(demoPresets);
+        setCategories(demoCategories);
+
+        // Immediately sync migrated data to Supabase Cloud
+        try {
+          await fetch('/api/pricings/bulk-upsert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              channel,
+              presets: demoPresets,
+              categories: demoCategories,
+              items: demoItems,
+            }),
+          });
+        } catch {
+          // non-blocking
+        }
+        showToast(
+          `Selamat datang, ${user.name}! Data simulasi berhasil disimpan ke akun resto Anda.`
+        );
+      } else {
+        setItems(loadMenuItems(channel, user.id));
+        setPresets(loadPresets(channel, user.id));
+        setCategories(loadCategories(channel, user.id));
+        setDiscountTemplates(loadDiscountTemplates(channel, user.id));
+        await fetchCloudWorkspace(channel, user.id);
+        showToast(`Selamat datang kembali, ${user.name}!`);
+      }
+    },
+    [channel, items, presets, categories, fetchCloudWorkspace, showToast]
+  );
+
+  // Handle Logout
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore
+    }
+    setAuthUser(null);
+    setUndoSnapshot(null);
+    setDbSyncStatus('idle');
+    setItems(loadMenuItems(channel, null));
+    setPresets(loadPresets(channel, null));
+    setCategories(loadCategories(channel, null));
+    setDiscountTemplates(loadDiscountTemplates(channel, null));
+    showToast('Anda telah keluar. Beralih kembali ke Mode Demo.');
+  }, [channel, showToast]);
+
+  // Pure state update for inline table edits
+  const handleUpdateItem = useCallback((id: string, updates: Partial<MenuItem>) => {
+    const now = new Date().toISOString();
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, ...updates, updatedAt: now } : it))
+    );
+  }, []);
+
   const handleDeleteItem = useCallback(
     (id: string) => {
       const target = items.find((it) => it.id === id);
@@ -191,46 +408,37 @@ export default function PricingEnginePage() {
           highlightId: target.id,
         });
       }
-      setItems((prev) => {
-        const next = prev.filter((it) => it.id !== id);
-        saveMenuItems(channel, next);
-        return next;
-      });
-      showToast(`Menu "${target?.name || ''}" berhasil dihapus`, true);
+      setItems((prev) => prev.filter((it) => it.id !== id));
+      showToast(`Menu "${target?.name || ''}" dihapus`, true);
     },
-    [items, channel, showToast]
+    [items, showToast]
   );
 
-  // Bulk Delete items with Undo capability
   const handleBulkDeleteItems = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return;
       const idSet = new Set(ids);
       setUndoSnapshot({
-        restoreToast: `${ids.length} menu yang dihapus berhasil dipulihkan`,
+        restoreToast: `${ids.length} menu berhasil dipulihkan`,
         prevItems: items,
       });
-      setItems((prev) => {
-        const next = prev.filter((it) => !idSet.has(it.id));
-        saveMenuItems(channel, next);
-        return next;
-      });
-      showToast(`${ids.length} menu terpilih berhasil dihapus`, true);
+      setItems((prev) => prev.filter((it) => !idSet.has(it.id)));
+      showToast(`${ids.length} menu dihapus`, true);
     },
-    [items, channel, showToast]
+    [items, showToast]
   );
 
-  // Bulk Apply Ideal Prices to selected items with Undo capability
   const handleBulkApplyIdealPrices = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return;
       const idSet = new Set(ids);
+      const now = new Date().toISOString();
       setUndoSnapshot({
-        restoreToast: `Harga sebelumnya untuk ${ids.length} menu berhasil dikembalikan`,
+        restoreToast: `Harga sebelumnya untuk ${ids.length} menu dikembalikan`,
         prevItems: items,
       });
-      setItems((prev) => {
-        const next = prev.map((item) => {
+      setItems((prev) =>
+        prev.map((item) => {
           if (!idSet.has(item.id)) return item;
           const calc = calculations.get(item.id);
           const idealPrice =
@@ -250,109 +458,133 @@ export default function PricingEnginePage() {
           return {
             ...item,
             displayPrice: idealPrice,
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           };
-        });
-        saveMenuItems(channel, next);
-        return next;
-      });
-      showToast(`Harga ideal diterapkan pada ${ids.length} menu terpilih`, true);
+        })
+      );
+      showToast(`Harga ideal diterapkan pada ${ids.length} menu`, true);
     },
-    [items, calculations, channel, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]
+    [
+      items,
+      calculations,
+      channel,
+      presets.roundingRule,
+      presets.gojekSubsidyPct,
+      presets.isCoFundedPromo,
+      showToast,
+    ]
   );
 
-  // Bulk Update items (Booster, Subsidy, or Category) with Undo capability
   const handleBulkUpdateItems = useCallback(
     (ids: string[], updates: Partial<MenuItem>, actionLabel: string) => {
+      if (!authUser) {
+        requireAuth(
+          'Fitur Edit Massal (Bulk Action) hanya terbuka untuk Akun Resto terdaftar.'
+        );
+        return;
+      }
       if (ids.length === 0) return;
       const idSet = new Set(ids);
+      const now = new Date().toISOString();
       setUndoSnapshot({
-        restoreToast: `Perubahan massal (${actionLabel}) telah dibatalkan`,
+        restoreToast: `Perubahan massal (${actionLabel}) dibatalkan`,
         prevItems: items,
       });
-      setItems((prev) => {
-        const next = prev.map((it) =>
-          idSet.has(it.id)
-            ? { ...it, ...updates, updatedAt: new Date().toISOString() }
-            : it
-        );
-        saveMenuItems(channel, next);
-        return next;
-      });
+      setItems((prev) =>
+        prev.map((it) =>
+          idSet.has(it.id) ? { ...it, ...updates, updatedAt: now } : it
+        )
+      );
       showToast(`${actionLabel} diterapkan pada ${ids.length} menu`, true);
     },
-    [items, channel, showToast]
+    [authUser, requireAuth, items, showToast]
   );
 
-  // Open Edit Modal
   const handleOpenEditModal = useCallback((item: MenuItem) => {
     setSelectedEditItem(item);
     setIsEditModalOpen(true);
   }, []);
 
-  // Save Edited Item
+  const handleOpenAddModal = useCallback(() => {
+    if (!authUser && items.length >= DEMO_MAX_MENU_ITEMS) {
+      requireAuth(
+        `Mode Demo dibatasi maksimal ${DEMO_MAX_MENU_ITEMS} menu. Masuk atau Daftar Akun Resto gratis untuk menambah menu tanpa batas.`
+      );
+      return;
+    }
+    setIsAddModalOpen(true);
+  }, [authUser, items.length, requireAuth]);
+
+  const handleOpenCategoryModal = useCallback(() => {
+    if (!authUser) {
+      requireAuth(
+        'Fitur Kelola & Kustomisasi Kategori Resto memerlukan Akun Resto terdaftar.'
+      );
+      return;
+    }
+    setIsCategoryModalOpen(true);
+  }, [authUser, requireAuth]);
+
   const handleSaveEditedItem = useCallback(
     (updatedItem: MenuItem) => {
       const original = items.find((it) => it.id === updatedItem.id);
       if (original) {
         setUndoSnapshot({
-          restoreToast: `Perubahan menu "${original.name}" telah dibatalkan.`,
+          restoreToast: `Perubahan menu "${original.name}" dibatalkan`,
           prevItems: items,
           highlightId: original.id,
         });
       }
 
-      setItems((prev) => {
-        const next = prev.map((it) => (it.id === updatedItem.id ? updatedItem : it));
-        saveMenuItems(channel, next);
-        return next;
-      });
+      setItems((prev) =>
+        prev.map((it) => (it.id === updatedItem.id ? updatedItem : it))
+      );
 
       triggerHighlight(updatedItem.id);
-      showToast(`Menu "${updatedItem.name}" berhasil diperbarui (Final)!`, true);
+      showToast(`Menu "${updatedItem.name}" diperbarui`, true);
     },
-    [channel, items, triggerHighlight, showToast]
+    [items, triggerHighlight, showToast]
   );
 
-  // Unified Undo handler for single/bulk/global actions
   const handleUndo = useCallback(() => {
     if (!undoSnapshot) return;
     setItems(undoSnapshot.prevItems);
-    saveMenuItems(channel, undoSnapshot.prevItems);
 
     if (undoSnapshot.prevCategories) {
       setCategories(undoSnapshot.prevCategories);
-      saveCategories(channel, undoSnapshot.prevCategories);
+      saveCategories(channel, undoSnapshot.prevCategories, activeMerchantId);
     }
     if (undoSnapshot.prevPresets) {
       setPresets(undoSnapshot.prevPresets);
-      savePresets(channel, undoSnapshot.prevPresets);
+      savePresets(channel, undoSnapshot.prevPresets, activeMerchantId);
     }
     if (undoSnapshot.highlightId) {
       triggerHighlight(undoSnapshot.highlightId);
     }
     showToast(undoSnapshot.restoreToast, false);
     setUndoSnapshot(null);
-  }, [undoSnapshot, channel, triggerHighlight, showToast]);
+  }, [undoSnapshot, channel, activeMerchantId, triggerHighlight, showToast]);
 
-  // Category management handlers
   const handleUpdateCategories = useCallback(
-    (newCategories: string[], updatedItems?: MenuItem[], deletedCategoryName?: string) => {
+    (
+      newCategories: string[],
+      updatedItems?: MenuItem[],
+      deletedCategoryName?: string
+    ) => {
       if (deletedCategoryName) {
         setUndoSnapshot({
-          restoreToast: `Kategori "${deletedCategoryName}" dan menu terkait berhasil dipulihkan.`,
+          restoreToast: `Kategori "${deletedCategoryName}" berhasil dipulihkan`,
           prevCategories: categories,
           prevItems: items,
         });
       }
       setCategories(newCategories);
-      saveCategories(channel, newCategories);
+      saveCategories(channel, newCategories, activeMerchantId);
       if (updatedItems) {
         setItems(updatedItems);
-        saveMenuItems(channel, updatedItems);
       }
     },
-    [channel, categories, items]
+    [channel, categories, items, activeMerchantId]
   );
 
   const handleAddNewCategory = useCallback(
@@ -360,65 +592,122 @@ export default function PricingEnginePage() {
       setCategories((prev) => {
         if (prev.includes(newCat)) return prev;
         const next = [...prev, newCat];
-        saveCategories(channel, next);
+        saveCategories(channel, next, activeMerchantId);
         return next;
       });
     },
-    [channel]
+    [channel, activeMerchantId]
   );
 
-  // Duplicate item with highlight animation
   const handleDuplicateItem = useCallback(
     (item: MenuItem) => {
+      if (!authUser && items.length >= DEMO_MAX_MENU_ITEMS) {
+        requireAuth(
+          `Mode Demo dibatasi maksimal ${DEMO_MAX_MENU_ITEMS} menu. Masuk ke Akun Resto untuk menduplikasi lebih banyak menu.`
+        );
+        return;
+      }
+      const now = new Date().toISOString();
+      const suffix = Math.random().toString(36).slice(2, 6);
       const duplicated: MenuItem = {
         ...item,
-        id: `${channel.toLowerCase()}-${Date.now()}`,
+        id: `${channel.toLowerCase()}-${Date.now()}-${suffix}`,
         name: `${item.name} (Salinan)`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       };
-      setItems((prev) => {
-        const next = [duplicated, ...prev];
-        saveMenuItems(channel, next);
-        return next;
-      });
+      setItems((prev) => [duplicated, ...prev]);
       triggerHighlight(duplicated.id);
-      showToast(`Menu "${duplicated.name}" berhasil diduplikasi`);
+      showToast(`Menu "${duplicated.name}" diduplikasi`);
     },
-    [channel, triggerHighlight, showToast]
+    [authUser, items.length, requireAuth, channel, triggerHighlight, showToast]
   );
 
-  // Add new item with highlight animation
   const handleAddMenuItem = useCallback(
     (newItem: MenuItem) => {
-      setItems((prev) => {
-        const next = [newItem, ...prev];
-        saveMenuItems(channel, next);
-        return next;
-      });
+      setItems((prev) => [newItem, ...prev]);
       triggerHighlight(newItem.id);
-      showToast(`Menu "${newItem.name}" berhasil ditambahkan`);
+      showToast(`Menu "${newItem.name}" ditambahkan`);
     },
-    [channel, triggerHighlight, showToast]
+    [triggerHighlight, showToast]
   );
 
-  // Update Presets
   const handlePresetsChange = useCallback(
     (newPresets: GlobalPresets) => {
       setPresets(newPresets);
-      savePresets(channel, newPresets);
+      savePresets(channel, newPresets, activeMerchantId);
     },
-    [channel]
+    [channel, activeMerchantId]
   );
 
-  // Apply Presets to All Items (with Undo protection)
+  // Apply a Resto Discount Template
+  const handleApplyDiscountTemplate = useCallback(
+    (tpl: DiscountTemplate) => {
+      const nextPresets: GlobalPresets = {
+        platformCommissionPct: tpl.platformCommissionPct,
+        marketingBoosterPct: tpl.marketingBoosterPct,
+        merchantDiscountType: tpl.merchantDiscountType,
+        merchantDiscountValue: tpl.merchantDiscountValue,
+        roundingRule: tpl.roundingRule,
+        isBoosterActiveDefault: tpl.isBoosterActiveDefault,
+        gojekSubsidyPct: tpl.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+        isCoFundedPromo: tpl.isCoFundedPromo ?? presets.isCoFundedPromo ?? true,
+      };
+      setPresets(nextPresets);
+      savePresets(channel, nextPresets, activeMerchantId);
+      showToast(`Skema promo "${tpl.name}" diterapkan ke parameter resto`);
+    },
+    [channel, activeMerchantId, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]
+  );
+
+  // Save a new Custom Resto Discount Template
+  const handleSaveCustomTemplate = useCallback(
+    (name: string) => {
+      const newTemplate: DiscountTemplate = {
+        id: `custom-${channel.toLowerCase()}-${Date.now()}`,
+        name,
+        channel,
+        platformCommissionPct: presets.platformCommissionPct,
+        marketingBoosterPct: presets.marketingBoosterPct,
+        isBoosterActiveDefault: presets.isBoosterActiveDefault,
+        merchantDiscountType: presets.merchantDiscountType,
+        merchantDiscountValue: presets.merchantDiscountValue,
+        gojekSubsidyPct: presets.gojekSubsidyPct ?? 25,
+        isCoFundedPromo: presets.isCoFundedPromo ?? true,
+        roundingRule: presets.roundingRule,
+        isBuiltIn: false,
+      };
+
+      setDiscountTemplates((prev) => {
+        const next = [...prev, newTemplate];
+        saveDiscountTemplates(channel, next, activeMerchantId);
+        return next;
+      });
+      showToast(`Skema promo resto "${name}" berhasil disimpan`);
+    },
+    [channel, presets, activeMerchantId, showToast]
+  );
+
+  const handleDeleteCustomTemplate = useCallback(
+    (templateId: string) => {
+      setDiscountTemplates((prev) => {
+        const next = prev.filter((t) => t.id !== templateId);
+        saveDiscountTemplates(channel, next, activeMerchantId);
+        return next;
+      });
+      showToast('Skema promo kustom dihapus');
+    },
+    [channel, activeMerchantId, showToast]
+  );
+
   const handleApplyPresetsToAllItems = useCallback(() => {
+    const now = new Date().toISOString();
     setUndoSnapshot({
-      restoreToast: 'Parameter menu sebelum sinkronisasi preset berhasil dikembalikan',
+      restoreToast: 'Parameter menu sebelum sinkronisasi dikembalikan',
       prevItems: items,
     });
-    setItems((prev) => {
-      const next = prev.map((item) => ({
+    setItems((prev) =>
+      prev.map((item) => ({
         ...item,
         platformCommissionPct: presets.platformCommissionPct,
         marketingBoosterPct: presets.marketingBoosterPct,
@@ -427,102 +716,122 @@ export default function PricingEnginePage() {
         isBoosterActive: presets.isBoosterActiveDefault,
         gojekSubsidyPct: presets.gojekSubsidyPct ?? item.gojekSubsidyPct ?? 25,
         isCoFundedPromo: presets.isCoFundedPromo ?? item.isCoFundedPromo ?? true,
-        updatedAt: new Date().toISOString(),
-      }));
-      saveMenuItems(channel, next);
-      return next;
-    });
-    showToast('Parameter preset global diterapkan ke semua menu', true);
-  }, [channel, items, presets, showToast]);
+        updatedAt: now,
+      }))
+    );
+    showToast('Parameter default diterapkan ke semua menu', true);
+  }, [items, presets, showToast]);
 
-  // Apply Ideal Price to Single Item
   const handleApplyIdealPrice = useCallback(
     (id: string, newPrice: number) => {
       handleUpdateItem(id, { displayPrice: newPrice });
       triggerHighlight(id);
-      showToast(`Harga ideal ${newPrice.toLocaleString('id-ID')} berhasil diterapkan`);
+      showToast(`Harga ideal Rp ${newPrice.toLocaleString('id-ID')} diterapkan`);
     },
     [handleUpdateItem, triggerHighlight, showToast]
   );
 
-  // Apply Ideal Price to ALL items (with Undo protection)
   const handleApplyAllIdealPrices = useCallback(() => {
+    const now = new Date().toISOString();
     setUndoSnapshot({
-      restoreToast: 'Harga menu sebelum penerapan harga ideal massal berhasil dikembalikan',
+      restoreToast: 'Harga menu sebelum penyesuaian massal dikembalikan',
       prevItems: items,
     });
-    setItems((prev) => {
-      const next = prev.map((item) => {
-        const rec = calculateRecommendedPrice(
-          item.targetOfflinePrice,
-          item.merchantDiscountType,
-          item.merchantDiscountValue,
-          item.platformCommissionPct,
-          item.marketingBoosterPct,
-          item.isBoosterActive,
-          presets.roundingRule,
-          channel,
-          item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
-          item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true
-        );
+    setItems((prev) =>
+      prev.map((item) => {
+        const calc = calculations.get(item.id);
+        const idealPrice =
+          calc?.recommendedDisplayPriceRounded ??
+          calculateRecommendedPrice(
+            item.targetOfflinePrice,
+            item.merchantDiscountType,
+            item.merchantDiscountValue,
+            item.platformCommissionPct,
+            item.marketingBoosterPct,
+            item.isBoosterActive,
+            presets.roundingRule,
+            channel,
+            item.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25,
+            item.isCoFundedPromo ?? presets.isCoFundedPromo ?? true
+          ).roundedRecommendedPrice;
         return {
           ...item,
-          displayPrice: rec.roundedRecommendedPrice,
-          updatedAt: new Date().toISOString(),
+          displayPrice: idealPrice,
+          updatedAt: now,
         };
-      });
-      saveMenuItems(channel, next);
-      return next;
-    });
-    showToast('Semua menu kini menggunakan Harga Ideal (Dijamin bebas boncos)!', true);
-  }, [channel, items, presets.roundingRule, presets.gojekSubsidyPct, presets.isCoFundedPromo, showToast]);
+      })
+    );
+    showToast('Semua menu telah disesuaikan ke Harga Ideal', true);
+  }, [
+    channel,
+    items,
+    calculations,
+    presets.roundingRule,
+    presets.gojekSubsidyPct,
+    presets.isCoFundedPromo,
+    showToast,
+  ]);
 
-  // Reset Defaults (with Undo protection)
   const handleResetDefaults = useCallback(() => {
     setUndoSnapshot({
-      restoreToast: 'Data workspace sebelum reset berhasil dipulihkan',
+      restoreToast: 'Data workspace sebelum reset dipulihkan',
       prevItems: items,
       prevCategories: categories,
       prevPresets: presets,
     });
-    const res = resetWorkspaceToDefaults(channel);
+    const res = resetWorkspaceToDefaults(channel, activeMerchantId);
     setItems(res.items);
     setPresets(res.presets);
     setCategories(res.categories);
-    showToast('Workspace di-reset ke nilai default awal.', true);
-  }, [channel, items, categories, presets, showToast]);
+    showToast('Workspace dikembalikan ke nilai awal', true);
+  }, [channel, activeMerchantId, items, categories, presets, showToast]);
 
-  // Open Receipt Modal
   const handleOpenReceiptModal = useCallback((item?: MenuItem) => {
     setSelectedReceiptItem(item ?? null);
     setIsReceiptModalOpen(true);
   }, []);
 
-  // Export CSV (uses accurate channel-aware memoized calculations map)
+  const handleOpenDefaultReceiptModal = useCallback(() => {
+    setSelectedReceiptItem(null);
+    setIsReceiptModalOpen(true);
+  }, []);
+
   const handleExportCsv = useCallback(
     (targetItems?: MenuItem[]) => {
-      const listToExport = targetItems && targetItems.length > 0 ? targetItems : items;
+      if (!authUser) {
+        requireAuth(
+          'Fitur Export Laporan CSV hanya tersedia untuk Akun Resto terdaftar.'
+        );
+        return;
+      }
+      const listToExport =
+        targetItems && targetItems.length > 0 ? targetItems : items;
       exportPricingToCsv(listToExport, calculations, channel);
       showToast(
         targetItems && targetItems.length > 0
-          ? `File CSV (${targetItems.length} menu terpilih) berhasil diunduh`
-          : 'File CSV seluruh menu berhasil diunduh'
+          ? `CSV (${targetItems.length} menu) berhasil diunduh`
+          : 'CSV seluruh menu berhasil diunduh'
       );
     },
-    [items, calculations, channel, showToast]
+    [authUser, requireAuth, items, calculations, channel, showToast]
   );
 
-  // Import CSV with Undo protection & category auto-discovery
   const handleImportCsv = useCallback(
     (rawCsvText: string) => {
+      if (!authUser) {
+        requireAuth(
+          'Fitur Import Menu Massal dari CSV memerlukan Akun Resto terdaftar.'
+        );
+        return;
+      }
       const result = parsePricingCsv(rawCsvText, channel, presets);
       if (result.items.length === 0) {
-        showToast('Tidak ada data menu valid yang ditemukan di file CSV.');
+        showToast('Tidak ada data menu valid pada file CSV');
         return;
       }
 
       setUndoSnapshot({
-        restoreToast: `Impor ${result.items.length} menu dari CSV telah dibatalkan`,
+        restoreToast: `Impor ${result.items.length} menu dari CSV dibatalkan`,
         prevItems: items,
         prevCategories: categories,
       });
@@ -532,29 +841,45 @@ export default function PricingEnginePage() {
       );
       if (mergedCategories.length !== categories.length) {
         setCategories(mergedCategories);
-        saveCategories(channel, mergedCategories);
+        saveCategories(channel, mergedCategories, activeMerchantId);
       }
 
-      const nextItems = [...result.items, ...items];
-      setItems(nextItems);
-      saveMenuItems(channel, nextItems);
+      setItems([...result.items, ...items]);
 
       if (result.items[0]) {
         triggerHighlight(result.items[0].id);
       }
 
       showToast(
-        `Berhasil mengimpor ${result.items.length} menu dari CSV${
-          result.skippedCount > 0 ? ` (${result.skippedCount} baris kosong dilewati)` : ''
+        `Berhasil mengimpor ${result.items.length} menu${
+          result.skippedCount > 0
+            ? ` (${result.skippedCount} baris dilewati)`
+            : ''
         }`,
         true
       );
     },
-    [channel, presets, items, categories, triggerHighlight, showToast]
+    [
+      authUser,
+      requireAuth,
+      channel,
+      presets,
+      items,
+      categories,
+      activeMerchantId,
+      triggerHighlight,
+      showToast,
+    ]
   );
 
-  // Sync to PostgreSQL DB (with fallback to client storage)
-  const handleSyncDatabase = async () => {
+  const handleSyncDatabase = useCallback(async () => {
+    if (!authUser) {
+      requireAuth(
+        'Masuk atau Daftar Akun Resto untuk menyimpan daftar menu & skema diskon Anda ke Supabase Cloud Database.'
+      );
+      return;
+    }
+
     setIsSyncingDb(true);
     setDbSyncStatus('idle');
 
@@ -564,12 +889,9 @@ export default function PricingEnginePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           channel,
-          presets: {
-            platformCommissionPct: presets.platformCommissionPct,
-            marketingBoosterPct: presets.marketingBoosterPct,
-            merchantDiscountValue: presets.merchantDiscountValue,
-            roundingRule: presets.roundingRule,
-          },
+          presets,
+          categories,
+          discountTemplates,
           items,
         }),
       });
@@ -577,12 +899,14 @@ export default function PricingEnginePage() {
       const data = await response.json();
 
       if (response.ok) {
-        if (data.source === 'postgres') {
+        if (data.source === 'supabase_postgres' || data.source === 'postgres') {
           setDbSyncStatus('success');
-          showToast(`Berhasil tersimpan di PostgreSQL (${data.savedCount} menu)`);
+          showToast(
+            `Tersimpan di Supabase Cloud (${data.savedCount} menu • ${authUser.name})`
+          );
         } else {
           setDbSyncStatus('fallback');
-          showToast('Data tersimpan di penyimpanan lokal browser');
+          showToast('Tersimpan di penyimpanan akun lokal');
         }
       } else {
         setDbSyncStatus('error');
@@ -590,23 +914,21 @@ export default function PricingEnginePage() {
       }
     } catch {
       setDbSyncStatus('fallback');
-      showToast('Mode offline aktif: data tersimpan aman di browser');
+      showToast('Mode offline: data tersimpan di browser');
     } finally {
       setIsSyncingDb(false);
     }
-  };
+  }, [
+    authUser,
+    requireAuth,
+    channel,
+    presets,
+    categories,
+    discountTemplates,
+    items,
+    showToast,
+  ]);
 
-  // Count boncos
-  const boncosCount = useMemo(() => {
-    let count = 0;
-    items.forEach((it) => {
-      const calc = calculations.get(it.id);
-      if (calc && calc.variance < 0) count++;
-    });
-    return count;
-  }, [items, calculations]);
-
-  // Instant Shimmer Skeleton screen before client hydration (Zero Layout Shift)
   if (!isClient) {
     return <DashboardSkeleton />;
   }
@@ -615,60 +937,116 @@ export default function PricingEnginePage() {
 
   return (
     <main className="max-w-360 mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 min-h-screen text-slate-900">
-      <div className="space-y-5 sm:space-y-6">
-        {/* Top Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200/80">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-xs transition-colors duration-200 ${
-                isGrab
-                  ? 'bg-[#00B14F] shadow-emerald-500/20'
-                  : 'bg-[#EE2737] shadow-red-500/20'
-              }`}
-            >
-              <UtensilsCrossed className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-950">
-                  FoodMerchant Pricing & Margin Engine
-                </h1>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 hidden sm:inline">
-                  v2.0 Precision
+      <div className="space-y-5">
+        {/* Clean Minimalist Header with Auth & Education Actions */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-950">
+                FoodMerchant Pricing Engine
+              </h1>
+              {authUser ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Akun Resto Aktif
                 </span>
-              </div>
-              <p className="text-xs text-slate-500 font-normal mt-0.5 leading-normal">
-                Kalkulator presisi biaya platform, diskon mitra, dan margin bersih terkalibrasi Order GF-957
-              </p>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  Mode Demo (Maks. {DEMO_MAX_MENU_ITEMS} Menu)
+                </span>
+              )}
             </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Kalkulasi komisi platform, skema promosi bersama, dan margin bersih mitra kuliner
+            </p>
           </div>
 
-          {/* Quick Benchmark Reference Badge */}
-          <div className="flex items-center gap-2.5 self-start sm:self-auto">
-            <div className="text-right hidden lg:block">
-              <span className="text-[10px] text-slate-400 font-mono block">
-                KALIBRASI RIIL
-              </span>
-              <span className="text-xs font-semibold text-slate-800 tabular-nums">
-                {isGrab ? 'Order GF-957 (Rp 29.753)' : 'Order F-3388856614 & F-3392285639'}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Interactive Calculation Guide Button */}
+            <button
+              type="button"
+              onClick={() => setIsEducationModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-slate-600" />
+              Cara Hitung & Bedah Rumus
+            </button>
+
+            {/* Auth Profile / Login Gate */}
+            {authUser ? (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200/80">
+                  <Store className="w-3.5 h-3.5 text-slate-700" />
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-slate-900 leading-none">
+                      {authUser.name}
+                    </div>
+                    <div className="text-[10px] text-slate-500 leading-none mt-0.5">
+                      {authUser.email}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  aria-label="Keluar dari akun restoran"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Keluar
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthGateReason(null);
+                    setAuthModalMode('login');
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  Masuk / Daftar Resto
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Demo Mode Notice Banner */}
+        {!authUser && (
+          <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>
+                Anda sedang menggunakan <strong>Mode Demo Terbatas</strong> (maksimal{' '}
+                {DEMO_MAX_MENU_ITEMS} menu). Daftar akun resto gratis untuk membuka{' '}
+                <strong>Simpan Cloud Supabase</strong>,{' '}
+                <strong>Template Skema Promo Resto</strong>, dan{' '}
+                <strong>Import/Export CSV</strong>.
               </span>
             </div>
             <button
               type="button"
-              onClick={() => handleOpenReceiptModal()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
+              onClick={() => {
+                setAuthGateReason(null);
+                setAuthModalMode('register');
+                setIsAuthModalOpen(true);
+              }}
+              className="shrink-0 font-bold text-amber-950 underline hover:text-amber-700 cursor-pointer"
             >
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Verifikasi Struk</span>
+              Buat Akun Resto Gratis →
             </button>
           </div>
-        </header>
+        )}
 
-        {/* 1. Workspace Switcher (GrabFood & GoFood Tabs) */}
+        {/* 1. Workspace Switcher */}
         <WorkspaceSwitcher
           currentChannel={channel}
           onChannelChange={handleChannelChange}
-          boncosCount={boncosCount}
         />
 
         {/* 2. KPI Summary Cards */}
@@ -678,7 +1056,7 @@ export default function PricingEnginePage() {
           onApplyAllIdealPrices={handleApplyAllIdealPrices}
         />
 
-        {/* 3. Global Preset Bar */}
+        {/* 3. Global Preset Bar with Custom Resto Discount Templates */}
         <GlobalPresetBar
           channel={channel}
           presets={presets}
@@ -686,13 +1064,19 @@ export default function PricingEnginePage() {
           onApplyAllIdealPrices={handleApplyAllIdealPrices}
           onApplyPresetsToAllItems={handleApplyPresetsToAllItems}
           onResetDefaults={handleResetDefaults}
-          onOpenReceiptModal={() => handleOpenReceiptModal()}
+          onOpenReceiptModal={handleOpenDefaultReceiptModal}
           onSyncDatabase={handleSyncDatabase}
           isSyncingDb={isSyncingDb}
           dbSyncStatus={dbSyncStatus}
+          isAuthenticated={Boolean(authUser)}
+          discountTemplates={discountTemplates}
+          onApplyTemplate={handleApplyDiscountTemplate}
+          onSaveCustomTemplate={handleSaveCustomTemplate}
+          onDeleteCustomTemplate={handleDeleteCustomTemplate}
+          onRequireAuth={requireAuth}
         />
 
-        {/* 4. High-Density Responsive Table with Dual View & Highlight */}
+        {/* 4. Responsive Pricing Table */}
         <PricingTable
           channel={channel}
           items={items}
@@ -706,33 +1090,51 @@ export default function PricingEnginePage() {
           onBulkApplyIdealPrices={handleBulkApplyIdealPrices}
           onBulkUpdateItems={handleBulkUpdateItems}
           onOpenReceiptModal={handleOpenReceiptModal}
-          onOpenAddModal={() => setIsAddModalOpen(true)}
+          onOpenAddModal={handleOpenAddModal}
           onOpenEditModal={handleOpenEditModal}
-          onOpenCategoryModal={() => setIsCategoryModalOpen(true)}
+          onOpenCategoryModal={handleOpenCategoryModal}
           onExportCsv={handleExportCsv}
           onImportCsv={handleImportCsv}
           highlightedItemId={highlightedItemId}
           isLoading={isPending}
         />
 
-        {/* Footer info note */}
-        <footer className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
+        {/* Minimalist Footer */}
+        <footer className="pt-3 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
           <div>
-            FoodMerchant Engine • Dilengkapi PostgreSQL Schema + Row-Level Locking QRIS Idempotency
+            FoodMerchant Pricing Engine •{' '}
+            {authUser ? `Workspace: ${authUser.name}` : 'Mode Simulasi Demo'}
           </div>
-          <div className="flex items-center gap-3">
-            <span>
-              {isGrab
-                ? 'Formula terkalibrasi ke Order GrabFood GF-957'
-                : 'Formula terkalibrasi ke Order GoFood F-3388856614 & Maksimal PRO'}
-            </span>
-            <span>•</span>
-            <span className="font-mono text-slate-500">IDR Integer Math</span>
+          <div className="flex items-center gap-2 font-mono text-[11px]">
+            <span>{isGrab ? 'GrabFood Settlement' : 'GoFood Maksimal PRO'}</span>
+            <span>·</span>
+            <span>Supabase PostgreSQL Ready</span>
           </div>
         </footer>
       </div>
 
-      {/* Lazy Loaded GrabReceiptModal (GF-957 Mobile View) */}
+      {/* Modals */}
+      {isAuthModalOpen && (
+        <AuthModal
+          key={authModalMode}
+          isOpen={isAuthModalOpen}
+          onClose={() => {
+            setIsAuthModalOpen(false);
+            setAuthGateReason(null);
+          }}
+          initialMode={authModalMode}
+          gateReason={authGateReason}
+          onAuthSuccess={handleAuthSuccess}
+        />
+      )}
+
+      {isEducationModalOpen && (
+        <PricingEducationModal
+          isOpen={isEducationModalOpen}
+          onClose={() => setIsEducationModalOpen(false)}
+        />
+      )}
+
       {isReceiptModalOpen && isGrab && (
         <GrabReceiptModal
           isOpen={isReceiptModalOpen}
@@ -743,7 +1145,6 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Lazy Loaded GoFoodReceiptModal (F-3388856614 & F-3392285639 Mobile View) */}
       {isReceiptModalOpen && !isGrab && (
         <GoFoodReceiptModal
           key={selectedReceiptItem?.id ?? 'default'}
@@ -755,7 +1156,6 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Lazy Loaded AddMenuModal */}
       {isAddModalOpen && (
         <AddMenuModal
           isOpen={isAddModalOpen}
@@ -769,7 +1169,6 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Lazy Loaded EditMenuModal */}
       {isEditModalOpen && selectedEditItem && (
         <EditMenuModal
           key={selectedEditItem.id}
@@ -788,7 +1187,6 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Lazy Loaded ManageCategoriesModal */}
       {isCategoryModalOpen && (
         <ManageCategoriesModal
           isOpen={isCategoryModalOpen}
@@ -801,18 +1199,19 @@ export default function PricingEnginePage() {
         />
       )}
 
-      {/* Toast Notification with Undo Capability */}
+      {/* Accessible Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl border border-slate-800 animate-in slide-in-from-bottom-2 duration-200">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{toastMessage}</span>
-          </div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg border border-slate-800"
+        >
+          <span>{toastMessage}</span>
           {toastCanUndo && undoSnapshot && (
             <button
               type="button"
               onClick={handleUndo}
-              className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition-colors cursor-pointer"
             >
               <Undo2 className="w-3 h-3" />
               <span>Urungkan</span>

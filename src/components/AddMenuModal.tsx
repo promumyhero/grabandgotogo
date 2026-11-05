@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DiscountType,
   GlobalPresets,
@@ -21,7 +21,8 @@ import {
   sanitizeNumericInput,
   handleNumberInputFocus,
 } from '@/lib/input-utils';
-import { X, Plus, Sparkles, FolderPlus, Utensils, Check } from 'lucide-react';
+import { X, FolderPlus, ArrowUpRight } from 'lucide-react';
+import { MenuNameAutocomplete } from '@/components/MenuNameAutocomplete';
 
 interface AddMenuModalProps {
   isOpen: boolean;
@@ -61,27 +62,23 @@ export function AddMenuModal({
     presets.gojekSubsidyPct ?? 25
   );
   const [notes, setNotes] = useState('');
-
-  // Auto-fill & auto-suggest states
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [inferredBadge, setInferredBadge] = useState<string | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [showHppHelper, setShowHppHelper] = useState(false);
+  const [hppCost, setHppCost] = useState<number>(15000);
+  const [packagingCost, setPackagingCost] = useState<number>(2000);
+  const [targetProfitPct, setTargetProfitPct] = useState<number>(40);
 
-  // Close suggestions when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  // Real-time suggestions based on current typed name
   const suggestions = getFoodSuggestions(name, existingItems, categories, 6);
 
   const forwardCalc = calculateForward(
@@ -114,13 +111,8 @@ export function AddMenuModal({
     setDisplayPrice(recommendation.roundedRecommendedPrice);
   };
 
-  // Handle typing in Menu Name with real-time category linking
   const handleNameChange = (val: string) => {
     setName(val);
-    setShowSuggestions(true);
-    setSelectedIndex(-1);
-
-    // Auto-infer category from name
     const detected = inferCategoryFromMenuName(val, categories);
     if (detected) {
       setInferredBadge(detected);
@@ -132,14 +124,11 @@ export function AddMenuModal({
     }
   };
 
-  // Select a suggestion from the autofill list
   const handleSelectSuggestion = (sug: FoodSuggestion) => {
     setName(sug.name);
     setCategory(sug.category);
     setInferredBadge(sug.category);
-    setShowSuggestions(false);
 
-    // Update targetOfflinePrice if still at default or user wants benchmark
     if (targetOfflinePrice === 30000 || targetOfflinePrice === 0) {
       setTargetOfflinePrice(sug.suggestedOfflinePrice);
       const rec = calculateRecommendedPrice(
@@ -158,24 +147,6 @@ export function AddMenuModal({
     }
   };
 
-  // Keyboard navigation for suggestions
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
-    } else if (e.key === 'Enter' && selectedIndex >= 0) {
-      e.preventDefault();
-      handleSelectSuggestion(suggestions[selectedIndex]);
-    } else if (e.key === 'Escape') {
-      setShowSuggestions(false);
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -188,8 +159,9 @@ export function AddMenuModal({
       }
     }
 
+    const randomSuffix = Math.random().toString(36).slice(2, 6);
     const newItem: MenuItem = {
-      id: `${channel.toLowerCase()}-${Date.now()}`,
+      id: `${channel.toLowerCase()}-${Date.now()}-${randomSuffix}`,
       name: name.trim(),
       category: finalCat.trim() || 'Makanan Utama',
       channel,
@@ -201,7 +173,7 @@ export function AddMenuModal({
       marketingBoosterPct: isGrab ? presets.marketingBoosterPct : 0,
       isBoosterActive: isGrab ? isBoosterActive : false,
       gojekSubsidyPct: !isGrab ? gojekSubsidyPct : undefined,
-      isCoFundedPromo: !isGrab,
+      isCoFundedPromo: !isGrab ? (presets.isCoFundedPromo ?? true) : undefined,
       notes: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -209,160 +181,93 @@ export function AddMenuModal({
 
     onAddMenuItem(newItem);
     onClose();
-    setName('');
-    setNotes('');
-    setIsAddingNewCat(false);
-    setNewCatInput('');
-    setShowSuggestions(false);
-    setInferredBadge(null);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-menu-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+      >
+        {/* Minimalist Header */}
+        <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">
           <div>
-            <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-              <Plus className="w-4 h-4 text-emerald-400" />
-              <span>Tambah Menu ({isGrab ? 'GrabFood' : 'GoFood'})</span>
+            <h3 id="add-menu-modal-title" className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+              Tambah Menu ({isGrab ? 'GrabFood' : 'GoFood'})
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5 font-normal">
-              Dilengkapi autofill cerdas yang otomatis terhubung ke kategori menu
+            <p className="text-xs text-slate-500 mt-0.5">
+              Masukkan harga offline target untuk mendapatkan rekomendasi harga aplikasi
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Tutup dialog"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Menu Name with Smart Autofill & Category Link */}
-            <div className="sm:col-span-2 relative" ref={dropdownRef}>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Nama Menu Makanan / Minuman <span className="text-rose-500">*</span>
-                </label>
-                {inferredBadge && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/80 animate-in fade-in">
-                    <Check className="w-3 h-3 text-emerald-600" />
-                    <span>Kategori terhubung: <strong>{inferredBadge}</strong></span>
-                  </span>
-                )}
-              </div>
-
-              <div className="relative">
-                <input
-                  type="text"
-                  required
-                  placeholder="Ketik nama menu, misal: Nasi Rames, Ayam Geprek, Es Teh..."
-                  value={name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  onFocus={() => setShowSuggestions(true)}
-                  onKeyDown={handleKeyDown}
-                  className="w-full text-sm font-semibold px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all bg-slate-50/50 focus:bg-white"
-                />
-                {name && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setName('');
-                      setInferredBadge(null);
-                    }}
-                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Floating Autocomplete Suggestions Dropdown */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-                  <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
-                    <span>Rekomendasi Menu & Kategori</span>
-                    <span className="text-[10px] text-slate-400">Pilih untuk auto-fill</span>
-                  </div>
-                  <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                    {suggestions.map((sug, idx) => (
-                      <button
-                        key={`${sug.name}-${idx}`}
-                        type="button"
-                        onClick={() => handleSelectSuggestion(sug)}
-                        className={`w-full px-3.5 py-2 text-left flex items-center justify-between gap-2 hover:bg-emerald-50/70 transition-colors cursor-pointer ${
-                          selectedIndex === idx ? 'bg-emerald-50 ring-1 ring-emerald-400 ring-inset' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                            <Utensils className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="truncate">
-                            <div className="text-xs font-bold text-slate-800 truncate">
-                              {sug.name}
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              Estimasi modal: {formatRupiah(sug.suggestedOfflinePrice)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
-                            {sug.category}
-                          </span>
-                          {sug.source === 'existing' && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 text-blue-700">
-                              Toko Anda
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div className="sm:col-span-2">
+              <MenuNameAutocomplete
+                id="add-menu-name"
+                value={name}
+                inferredBadge={inferredBadge}
+                suggestions={suggestions}
+                onChange={handleNameChange}
+                onClear={() => {
+                  setName('');
+                  setInferredBadge(null);
+                }}
+                onSelectSuggestion={handleSelectSuggestion}
+              />
             </div>
 
             {/* Category */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Kategori Menu
+                <label htmlFor="add-menu-category" className="block font-semibold text-slate-700">
+                  Kategori
                 </label>
                 <button
                   type="button"
                   onClick={() => setIsAddingNewCat(!isAddingNewCat)}
-                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer"
+                  className="text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer"
                 >
                   <FolderPlus className="w-3 h-3" />
-                  <span>{isAddingNewCat ? 'Pilih Kategori' : '+ Baru'}</span>
+                  <span>{isAddingNewCat ? 'Pilih Kategori' : '+ Kategori Baru'}</span>
                 </button>
               </div>
 
               {isAddingNewCat ? (
                 <input
+                  id="add-menu-category"
                   type="text"
                   placeholder="Ketik kategori baru..."
                   value={newCatInput}
                   onChange={(e) => setNewCatInput(e.target.value)}
                   autoFocus
-                  className="w-full text-xs font-semibold px-3 py-2.5 border border-emerald-500 rounded-xl focus:outline-none bg-white text-slate-900"
+                  className="w-full font-medium px-3 py-2 border border-slate-400 rounded-lg focus:outline-none bg-white text-slate-900"
                 />
               ) : (
                 <select
+                  id="add-menu-category"
                   value={category}
                   onChange={(e) => {
                     setCategory(e.target.value);
                     setInferredBadge(e.target.value);
                   }}
-                  className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
+                  className="w-full font-medium px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 bg-slate-50/50 cursor-pointer"
                 >
                   {categories.map((cat) => (
                     <option key={cat} value={cat}>
@@ -376,16 +281,26 @@ export function AddMenuModal({
               )}
             </div>
 
-            {/* Target Offline Price */}
+            {/* Target Offline Price + Optional HPP Helper */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Target Payout Bersih (Rp)
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="add-target-price" className="block font-semibold text-slate-700">
+                  Target Payout Bersih (Rp)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowHppHelper((prev) => !prev)}
+                  className="text-[11px] font-medium text-slate-600 hover:text-slate-900 underline cursor-pointer"
+                >
+                  {showHppHelper ? 'Tutup Bantu HPP' : 'Hitung dari HPP'}
+                </button>
+              </div>
               <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-xs font-medium text-slate-400">
+                <span className="absolute left-3 top-2 text-xs text-slate-400 select-none">
                   Rp
                 </span>
                 <input
+                  id="add-target-price"
                   type="number"
                   min="0"
                   step="500"
@@ -398,33 +313,110 @@ export function AddMenuModal({
                     e.target.value = stringValue;
                     setTargetOfflinePrice(numericValue);
                   }}
-                  className="w-full text-xs font-bold pl-9 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
+                  className="w-full font-semibold pl-8 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 tabular-nums bg-slate-50/50 focus:bg-white"
                 />
               </div>
+
+              {showHppHelper && (
+                <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                        Bahan (Rp)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={hppCost}
+                        onFocus={handleNumberInputFocus}
+                        onChange={(e) => {
+                          const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                          e.target.value = stringValue;
+                          setHppCost(numericValue);
+                        }}
+                        className="w-full px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                        Kemasan (Rp)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={packagingCost}
+                        onFocus={handleNumberInputFocus}
+                        onChange={(e) => {
+                          const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0 });
+                          e.target.value = stringValue;
+                          setPackagingCost(numericValue);
+                        }}
+                        className="w-full px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                        Margin (%)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="90"
+                        value={targetProfitPct}
+                        onFocus={handleNumberInputFocus}
+                        onChange={(e) => {
+                          const { stringValue, numericValue } = sanitizeNumericInput(e.target.value, { min: 0, max: 90, allowDecimals: true });
+                          e.target.value = stringValue;
+                          setTargetProfitPct(numericValue);
+                        }}
+                        className="w-full px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-600">
+                      Total Modal: <strong>{formatRupiah(hppCost + packagingCost)}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const totalModal = hppCost + packagingCost;
+                        const marginFrac = Math.min(0.9, Math.max(0, targetProfitPct / 100));
+                        const computedOffline = Math.ceil((totalModal / (1 - marginFrac)) / 500) * 500;
+                        setTargetOfflinePrice(computedOffline);
+                      }}
+                      className="px-2 py-1 text-[11px] font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded cursor-pointer"
+                    >
+                      Gunakan Rp {(Math.ceil(((hppCost + packagingCost) / (1 - Math.min(0.9, Math.max(0, targetProfitPct / 100)))) / 500) * 500).toLocaleString('id-ID')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Display Price with Recommend Action */}
             <div className="sm:col-span-2">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
+                <label htmlFor="add-display-price" className="block font-semibold text-slate-700">
                   Harga Jual di Aplikasi ({isGrab ? 'GrabFood' : 'GoFood'})
                 </label>
                 <button
                   type="button"
                   onClick={handleApplyRecommended}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                  className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-slate-900 hover:text-slate-600 underline underline-offset-2 cursor-pointer tabular-nums"
                 >
-                  <Sparkles className="w-3 h-3 text-amber-500" />
                   <span>
-                    Pakai Rekomendasi ({formatRupiah(recommendation.roundedRecommendedPrice)})
+                    Gunakan Rekomendasi ({formatRupiah(recommendation.roundedRecommendedPrice)})
                   </span>
+                  <ArrowUpRight className="w-3 h-3" />
                 </button>
               </div>
               <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-xs font-medium text-slate-400">
+                <span className="absolute left-3 top-2 text-xs text-slate-400 select-none">
                   Rp
                 </span>
                 <input
+                  id="add-display-price"
                   type="number"
                   min="0"
                   step="500"
@@ -437,20 +429,21 @@ export function AddMenuModal({
                     e.target.value = stringValue;
                     setDisplayPrice(numericValue);
                   }}
-                  className="w-full text-sm font-bold pl-9 pr-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
+                  className="w-full text-sm font-semibold pl-8 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 tabular-nums bg-slate-50/50 focus:bg-white"
                 />
               </div>
             </div>
 
             {/* Discount Settings */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Tipe Diskon Merchant
+              <label htmlFor="add-discount-type" className="block font-semibold text-slate-700 mb-1.5">
+                Tipe Diskon
               </label>
               <select
+                id="add-discount-type"
                 value={discountType}
                 onChange={(e) => setDiscountType(e.target.value as DiscountType)}
-                className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 cursor-pointer"
+                className="w-full font-medium px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 bg-slate-50/50 cursor-pointer"
               >
                 <option value="PERCENT">Persentase (%)</option>
                 <option value="NOMINAL">Nominal (Rp)</option>
@@ -458,10 +451,11 @@ export function AddMenuModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="add-discount-val" className="block font-semibold text-slate-700 mb-1.5">
                 Nilai Diskon ({discountType === 'PERCENT' ? '%' : 'Rp'})
               </label>
               <input
+                id="add-discount-val"
                 type="number"
                 min="0"
                 max={discountType === 'PERCENT' ? 100 : undefined}
@@ -477,112 +471,123 @@ export function AddMenuModal({
                   e.target.value = stringValue;
                   setDiscountValue(numericValue);
                 }}
-                className="w-full text-xs font-semibold px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 tabular-nums bg-slate-50/50 focus:bg-white"
+                className="w-full font-semibold px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 tabular-nums bg-slate-50/50 focus:bg-white"
               />
             </div>
 
             {/* Platform Booster (GrabFood) or Subsidi Gojek (GoFood) */}
             {isGrab ? (
-              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200/80">
                 <div>
-                  <span className="text-xs font-bold text-slate-800 block">
-                    Ikut Promo PUAS (Grab Booster 14%)
+                  <span className="font-semibold text-slate-800 block">
+                    Program PUAS (Grab Marketing Booster)
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    Menambah biaya pemasaran platform sebesar +14%
+                    Biaya pemasaran tambahan +{presets.marketingBoosterPct}% dari subtotal setelah diskon
                   </span>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={isBoosterActive}
-                  onChange={(e) => setIsBoosterActive(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
-                />
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isBoosterActive}
+                  onClick={() => setIsBoosterActive(!isBoosterActive)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isBoosterActive ? 'bg-slate-900' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                      isBoosterActive ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </div>
             ) : (
-              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="sm:col-span-2 flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200/80">
                 <div>
-                  <span className="text-xs font-bold text-slate-800 block">
-                    Skema Program Maksimal PRO (GoFood)
+                  <span className="font-semibold text-slate-800 block">
+                    Skema Maksimal PRO (GoFood)
                   </span>
                   <span className="text-[11px] text-slate-500">
                     Gojek mensubsidi {gojekSubsidyPct}%, resto menanggung {100 - gojekSubsidyPct}% diskon
                   </span>
                 </div>
                 <select
+                  aria-label="Subsidi Gojek"
                   value={gojekSubsidyPct}
                   onChange={(e) => {
                     const parsed = parseInt(e.target.value, 10);
                     setGojekSubsidyPct(Number.isNaN(parsed) ? 25 : parsed);
                   }}
-                  className="font-bold text-rose-700 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none cursor-pointer"
+                  className="font-semibold text-slate-900 bg-white border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none cursor-pointer"
                 >
-                  <option value={25}>Disubsidi 25% (Mitra 75%)</option>
-                  <option value={30}>Disubsidi 30% (Mitra 70%)</option>
-                  <option value={0}>0% (Mitra 100%)</option>
+                  <option value={25}>Subsidi 25% (Mitra 75%)</option>
+                  <option value={30}>Subsidi 30% (Mitra 70%)</option>
+                  <option value={0}>0% (Mandiri 100%)</option>
                   <option value={50}>50% (50/50)</option>
                 </select>
               </div>
             )}
 
             {/* Live Calculation Margin Preview */}
-            <div className="sm:col-span-2 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200 space-y-2">
+            <div className="sm:col-span-2 p-3.5 bg-slate-50 rounded-lg border border-slate-200/80 space-y-2">
               {!isGrab && (
                 <div className="flex items-center justify-between text-[11px] text-slate-500 pb-1.5 border-b border-slate-200/70">
                   <span>
-                    Rincian Potongan GoFood (Layanan {formatRupiah(forwardCalc.platformFee)} + Promo Mitra {formatRupiah(forwardCalc.mitraPromoShare ?? 0)}):
+                    Potongan GoFood (Layanan {formatRupiah(forwardCalc.platformFee)} + Promo Mitra {formatRupiah(forwardCalc.mitraPromoShare ?? 0)})
                   </span>
-                  <span className="font-semibold text-rose-600 tabular-nums">
+                  <span className="font-semibold text-slate-700 tabular-nums">
                     -{formatRupiah(forwardCalc.totalPlatformDeduction)}
                   </span>
                 </div>
               )}
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">Hasil Net Payout:</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Estimasi Net Payout</span>
                 <span className="font-bold text-slate-900 tabular-nums">
                   {formatRupiah(forwardCalc.netPayout)}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">Selisih vs Target:</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Selisih vs Target</span>
                 <span
-                  className={`font-bold tabular-nums ${
-                    forwardCalc.variance < 0 ? 'text-rose-600' : 'text-emerald-600'
+                  className={`font-semibold tabular-nums ${
+                    forwardCalc.variance < 0 ? 'text-rose-600' : 'text-emerald-700'
                   }`}
                 >
                   {formatRupiah(forwardCalc.variance, true)}{' '}
-                  {forwardCalc.variance < 0 ? '(Boncos)' : '(Aman)'}
+                  ({forwardCalc.variance < 0 ? 'Defisit' : 'Aman'})
                 </span>
               </div>
             </div>
 
             {/* Notes */}
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Catatan Menu (Opsional)
+              <label htmlFor="add-menu-notes" className="block font-semibold text-slate-700 mb-1.5">
+                Catatan (Opsional)
               </label>
               <input
+                id="add-menu-notes"
                 type="text"
-                placeholder="Misal: Paket hemat makan siang, Porsi jumbo..."
+                placeholder="Misal: Paket makan siang, porsi reguler..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full text-xs font-medium px-3.5 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/50 focus:bg-white"
+                className="w-full font-medium px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400 bg-slate-50/50 focus:bg-white"
               />
             </div>
           </div>
 
           {/* Form Actions */}
-          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+          <div className="pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              className="px-3.5 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors cursor-pointer"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
             >
               Simpan Menu
             </button>
