@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useRef, useEffect } from 'react';
 import {
   DiscountTemplate,
   DiscountType,
@@ -21,6 +21,10 @@ import {
   Check,
   Database,
   Receipt,
+  ChevronDown,
+  Copy,
+  Percent,
+  Eraser,
 } from 'lucide-react';
 
 interface GlobalPresetBarProps {
@@ -30,6 +34,10 @@ interface GlobalPresetBarProps {
   onApplyAllIdealPrices: () => void;
   onApplyPresetsToAllItems: () => void;
   onResetDefaults: () => void;
+  onResetEmptyMenu?: () => void;
+  onResetZeroDiscounts?: () => void;
+  onResetDisplayToOffline?: () => void;
+  onCopyFromOtherChannel?: () => void;
   onOpenReceiptModal: () => void;
   onSyncDatabase: () => void;
   isSyncingDb: boolean;
@@ -49,6 +57,10 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
   onApplyAllIdealPrices,
   onApplyPresetsToAllItems,
   onResetDefaults,
+  onResetEmptyMenu,
+  onResetZeroDiscounts,
+  onResetDisplayToOffline,
+  onCopyFromOtherChannel,
   onOpenReceiptModal,
   onSyncDatabase,
   isSyncingDb,
@@ -64,6 +76,22 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [isResetMenuOpen, setIsResetMenuOpen] = useState(false);
+  const resetDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isResetMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        resetDropdownRef.current &&
+        !resetDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsResetMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isResetMenuOpen]);
 
   const handleChange = <K extends keyof GlobalPresets>(
     key: K,
@@ -104,6 +132,7 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
   };
 
   const customTemplates = discountTemplates.filter((t) => !t.isBuiltIn);
+  const otherChannelName = isGrab ? 'GoFood' : 'GrabFood';
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
@@ -155,14 +184,118 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
             </span>
           </button>
 
-          <button
-            type="button"
-            onClick={onResetDefaults}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset
-          </button>
+          {/* Granular Reset & Cross-Channel Copy Dropdown */}
+          <div ref={resetDropdownRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsResetMenuOpen((prev) => !prev)}
+              aria-expanded={isResetMenuOpen}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+              <span>Reset & Salin Menu</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+
+            {isResetMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-xl z-30 py-1.5 text-xs">
+                {onCopyFromOtherChannel && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetMenuOpen(false);
+                      onCopyFromOtherChannel();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <Copy className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-slate-900">
+                        Salin Menu dari {otherChannelName}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Impor daftar menu {otherChannelName} & hitung harga ideal otomatis
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onResetZeroDiscounts && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetMenuOpen(false);
+                      onResetZeroDiscounts();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <Percent className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-slate-900">
+                        Reset Semua Diskon ke 0%
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Matikan diskon promo tanpa menghapus daftar menu
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onResetDisplayToOffline && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetMenuOpen(false);
+                      onResetDisplayToOffline();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-slate-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-slate-900">
+                        Reset Harga Tayang = Harga Offline
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Kembalikan harga tayang ke harga dasar (0% markup)
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onResetEmptyMenu && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetMenuOpen(false);
+                      onResetEmptyMenu();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left hover:bg-amber-50 flex items-start gap-2.5 cursor-pointer border-t border-slate-100"
+                  >
+                    <Eraser className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-amber-950">
+                        Kosongkan Semua Menu (Mulai dari 0)
+                      </div>
+                      <div className="text-[11px] text-amber-800">
+                        Hapus menu contoh untuk mulai input menu asli resto
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResetMenuOpen(false);
+                    onResetDefaults();
+                  }}
+                  className="w-full px-3.5 py-2 text-left hover:bg-slate-50 text-slate-600 border-t border-slate-100 cursor-pointer"
+                >
+                  Kembalikan ke Menu Contoh Bawaan
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"

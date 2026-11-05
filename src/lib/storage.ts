@@ -524,3 +524,111 @@ export function resetWorkspaceToDefaults(
 
   return { items, presets, categories };
 }
+
+/**
+ * Permanently remove all tenant-scoped localStorage keys for a deleted merchant account.
+ */
+export function clearMerchantStorage(merchantId: string): void {
+  if (typeof window === 'undefined' || !merchantId) return;
+  try {
+    const keys = getScopedKeys(merchantId);
+    Object.values(keys).forEach((k) => {
+      localStorage.removeItem(k);
+    });
+  } catch (e) {
+    console.error('Failed to clear merchant storage:', e);
+  }
+}
+
+export interface FullRestoBackupPayload {
+  version: number;
+  exportedAt: string;
+  restaurantName: string;
+  grabfood: {
+    items: MenuItem[];
+    presets: GlobalPresets;
+    categories: string[];
+    customTemplates: DiscountTemplate[];
+  };
+  gofood: {
+    items: MenuItem[];
+    presets: GlobalPresets;
+    categories: string[];
+    customTemplates: DiscountTemplate[];
+  };
+}
+
+export function createFullBackupObject(
+  merchantId?: string | null,
+  restaurantName: string = 'Restoran Saya'
+): FullRestoBackupPayload {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    restaurantName,
+    grabfood: {
+      items: loadMenuItems('GRABFOOD', merchantId),
+      presets: loadPresets('GRABFOOD', merchantId),
+      categories: loadCategories('GRABFOOD', merchantId),
+      customTemplates: loadDiscountTemplates('GRABFOOD', merchantId).filter(
+        (t) => !t.isBuiltIn
+      ),
+    },
+    gofood: {
+      items: loadMenuItems('GOFOOD', merchantId),
+      presets: loadPresets('GOFOOD', merchantId),
+      categories: loadCategories('GOFOOD', merchantId),
+      customTemplates: loadDiscountTemplates('GOFOOD', merchantId).filter(
+        (t) => !t.isBuiltIn
+      ),
+    },
+  };
+}
+
+export function restoreFullBackupObject(
+  rawJson: string,
+  merchantId?: string | null
+): { success: boolean; error?: string } {
+  try {
+    const parsed = JSON.parse(rawJson) as Partial<FullRestoBackupPayload>;
+    if (!parsed || typeof parsed !== 'object' || !parsed.grabfood || !parsed.gofood) {
+      return {
+        success: false,
+        error: 'Format file backup JSON tidak valid.',
+      };
+    }
+
+    if (Array.isArray(parsed.grabfood.items)) {
+      saveMenuItems('GRABFOOD', parsed.grabfood.items, merchantId);
+    }
+    if (parsed.grabfood.presets) {
+      savePresets('GRABFOOD', parsed.grabfood.presets, merchantId);
+    }
+    if (Array.isArray(parsed.grabfood.categories)) {
+      saveCategories('GRABFOOD', parsed.grabfood.categories, merchantId);
+    }
+    if (Array.isArray(parsed.grabfood.customTemplates)) {
+      saveDiscountTemplates('GRABFOOD', parsed.grabfood.customTemplates, merchantId);
+    }
+
+    if (Array.isArray(parsed.gofood.items)) {
+      saveMenuItems('GOFOOD', parsed.gofood.items, merchantId);
+    }
+    if (parsed.gofood.presets) {
+      savePresets('GOFOOD', parsed.gofood.presets, merchantId);
+    }
+    if (Array.isArray(parsed.gofood.categories)) {
+      saveCategories('GOFOOD', parsed.gofood.categories, merchantId);
+    }
+    if (Array.isArray(parsed.gofood.customTemplates)) {
+      saveDiscountTemplates('GOFOOD', parsed.gofood.customTemplates, merchantId);
+    }
+
+    return { success: true };
+  } catch {
+    return {
+      success: false,
+      error: 'Gagal membaca file backup JSON. Pastikan file tidak rusak.',
+    };
+  }
+}
