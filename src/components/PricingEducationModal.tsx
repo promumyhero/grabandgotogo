@@ -104,7 +104,7 @@ export function PricingEducationModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 lg:p-6"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 lg:p-6 animate-modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -113,8 +113,12 @@ export function PricingEducationModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="education-modal-title"
-        className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl w-full max-w-4xl max-h-[92dvh] sm:max-h-[88vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-t-2xl sm:rounded-2xl border border-slate-200 shadow-xl w-full max-w-4xl max-h-[92dvh] sm:max-h-[88vh] flex flex-col overflow-hidden animate-sheet-panel"
       >
+        {/* Mobile Bottom-Sheet Drag Handle Affordance */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-0.5 bg-white shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
         {/* Sticky Header */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0 bg-white">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -204,7 +208,7 @@ export function PricingEducationModal({
               TAB 1: PERBANDINGAN GRABFOOD VS GOFOOD
           ========================================== */}
           {activeTab === 'comparison' && (
-            <div className="space-y-4 sm:space-y-5">
+            <div className="space-y-4 sm:space-y-5 animate-tab-panel">
               {/* Key Takeaway Banner */}
               <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50/90 border border-amber-200 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
@@ -406,7 +410,7 @@ export function PricingEducationModal({
               TAB 2: RUMUS HARGA TAYANG AMAN (REVERSE)
           ========================================== */}
           {activeTab === 'formula' && (
-            <div className="space-y-4 sm:space-y-5 text-xs leading-relaxed">
+            <div className="space-y-4 sm:space-y-5 text-xs leading-relaxed animate-tab-panel">
               <div className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-4">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
@@ -529,7 +533,7 @@ export function PricingEducationModal({
               TAB 3: SIMULATOR PERBANDINGAN LANGSUNG
           ========================================== */}
           {activeTab === 'simulator' && (
-            <div className="space-y-4 sm:space-y-5">
+            <div className="space-y-4 sm:space-y-5 animate-tab-panel">
               {/* Touch-Friendly Simulator Controls */}
               <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3.5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

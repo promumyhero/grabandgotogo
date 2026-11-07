@@ -198,7 +198,7 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
             </button>
 
             {isResetMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-xl z-30 py-1.5 text-xs">
+              <div className="absolute right-0 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-xl z-30 py-1.5 text-xs animate-popover">
                 {onCopyFromOtherChannel && (
                   <button
                     type="button"
@@ -383,7 +383,7 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
             ) : (
               <form
                 onSubmit={handleConfirmCreateTemplate}
-                className="flex items-center gap-1.5"
+                className="flex items-center gap-1.5 animate-tab-panel"
               >
                 <input
                   type="text"
@@ -551,7 +551,12 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
                     { min: 0, max: 100, allowDecimals: true }
                   );
                   e.target.value = stringValue;
-                  handleChange('gojekSubsidyPct', numericValue);
+                  setSelectedTemplateId('');
+                  onPresetsChange({
+                    ...presets,
+                    gojekSubsidyPct: numericValue,
+                    isCoFundedPromo: numericValue > 0,
+                  });
                 }}
                 className="w-full px-3 py-2 text-sm font-semibold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all"
               />
@@ -675,9 +680,17 @@ export const GlobalPresetBar = memo(function GlobalPresetBar({
               type="button"
               role="switch"
               aria-checked={presets.isCoFundedPromo ?? true}
-              onClick={() =>
-                handleChange('isCoFundedPromo', !(presets.isCoFundedPromo ?? true))
-              }
+              onClick={() => {
+                const nextCoFunded = !(presets.isCoFundedPromo ?? true);
+                setSelectedTemplateId('');
+                onPresetsChange({
+                  ...presets,
+                  isCoFundedPromo: nextCoFunded,
+                  ...(nextCoFunded && (presets.gojekSubsidyPct ?? 0) === 0
+                    ? { gojekSubsidyPct: 25 }
+                    : {}),
+                });
+              }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                 (presets.isCoFundedPromo ?? true)
                   ? 'bg-rose-50 border-rose-200 text-rose-800'

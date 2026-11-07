@@ -32,7 +32,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   if (selectedCount === 0) return null;
 
   return (
-    <div className="px-4 py-2.5 bg-slate-900 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+    <div className="px-4 py-2.5 bg-slate-900 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-xs animate-popover">
       <div className="flex items-center gap-3 flex-wrap">
         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/10 text-white font-semibold tabular-nums">
           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -97,7 +97,10 @@ export const BulkActionBar = memo(function BulkActionBar({
             onChange={(e) => {
               if (!e.target.value) return;
               const pct = Number(e.target.value);
-              onBulkUpdateItems({ gojekSubsidyPct: pct }, `Set Subsidi Gojek ${pct}%`);
+              onBulkUpdateItems(
+                { gojekSubsidyPct: pct, isCoFundedPromo: pct > 0 },
+                `Set Subsidi Gojek ${pct}%`
+              );
               e.target.value = '';
             }}
             className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium border border-slate-700 cursor-pointer focus:outline-none"

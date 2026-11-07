@@ -6,7 +6,6 @@ import { WorkspaceChannel } from '@/types/pricing';
 interface WorkspaceSwitcherProps {
   currentChannel: WorkspaceChannel;
   onChannelChange: (channel: WorkspaceChannel) => void;
-  boncosCount?: number;
 }
 
 export const WorkspaceSwitcher = memo(function WorkspaceSwitcher({
@@ -65,7 +64,10 @@ export const WorkspaceSwitcher = memo(function WorkspaceSwitcher({
       </div>
 
       {/* Subtle Policy Context Line */}
-      <div className="text-xs text-slate-500 flex items-center gap-2">
+      <div
+        key={currentChannel}
+        className="text-xs text-slate-500 flex items-center gap-2 animate-tab-panel"
+      >
         {isGrab ? (
           <span>
             Formula GrabMerchant · Komisi dasar <strong className="font-semibold text-slate-700 tabular-nums">20%</strong> + opsional PUAS Booster <strong className="font-semibold text-slate-700 tabular-nums">14%</strong>

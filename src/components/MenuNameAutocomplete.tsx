@@ -106,7 +106,7 @@ export function MenuNameAutocomplete({
       {showSuggestions && suggestions.length > 0 && (
         <div
           role="listbox"
-          className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
+          className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden animate-popover"
         >
           <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-500">
             <span>Saran Menu & Kategori</span>

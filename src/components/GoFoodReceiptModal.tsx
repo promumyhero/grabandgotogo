@@ -30,7 +30,9 @@ export function GoFoodReceiptModal({
   onApplyIdealPrice,
 }: GoFoodReceiptModalProps) {
   const [interactiveSubsidy, setInteractiveSubsidy] = useState<number>(
-    selectedItem?.gojekSubsidyPct ?? 25
+    (selectedItem?.isCoFundedPromo ?? true)
+      ? (selectedItem?.gojekSubsidyPct ?? 25)
+      : 0
   );
   const [copied, setCopied] = useState(false);
 
@@ -82,7 +84,7 @@ export function GoFoodReceiptModal({
     : 'Simulasi';
 
   const subsidyPct = interactiveSubsidy;
-  const isCoFunded = activeItem.isCoFundedPromo ?? true;
+  const isCoFunded = subsidyPct > 0;
   const commissionPct = activeItem.platformCommissionPct;
 
   const forwardResult = calculateForward(
@@ -169,7 +171,7 @@ export function GoFoodReceiptModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-modal-backdrop"
       onClick={onClose}
     >
       <div
@@ -177,7 +179,7 @@ export function GoFoodReceiptModal({
         aria-modal="true"
         aria-labelledby="gofood-receipt-title"
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh]"
+        className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-modal-panel"
       >
         {/* Minimalist Header */}
         <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">

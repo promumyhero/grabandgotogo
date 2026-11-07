@@ -220,7 +220,7 @@ export function MerchantProfileModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto animate-modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -229,7 +229,7 @@ export function MerchantProfileModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="merchant-profile-title"
-        className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden my-auto"
+        className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden my-auto animate-modal-panel"
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
@@ -327,7 +327,7 @@ export function MerchantProfileModal({
           )}
 
           {activeTab === 'profile' && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-tab-panel">
               {/* Restaurant Health Summary */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
@@ -482,7 +482,7 @@ export function MerchantProfileModal({
           )}
 
           {activeTab === 'security' && (
-            <form onSubmit={handleSaveSecurity} className="space-y-4">
+            <form onSubmit={handleSaveSecurity} className="space-y-4 animate-tab-panel">
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed">
                 Demi keamanan akun restoran Anda, perubahan <strong>Email</strong> atau <strong>Password</strong> mewajibkan verifikasi <strong>Password Saat Ini</strong>.
               </div>
@@ -565,7 +565,7 @@ export function MerchantProfileModal({
           )}
 
           {activeTab === 'reset_danger' && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-tab-panel">
               {/* Granular Reset & Cross-Channel Sync */}
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">

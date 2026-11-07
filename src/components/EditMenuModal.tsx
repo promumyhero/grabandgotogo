@@ -65,8 +65,12 @@ export function EditMenuModal({
   const [discountValue, setDiscountValue] = useState<number>(item?.merchantDiscountValue ?? 0);
 
   const [isBoosterActive, setIsBoosterActive] = useState<boolean>(item?.isBoosterActive ?? false);
-  const [gojekSubsidyPct, setGojekSubsidyPct] = useState<number>(item?.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25);
-  const isCoFundedPromo = item?.isCoFundedPromo ?? presets.isCoFundedPromo ?? true;
+  const [gojekSubsidyPct, setGojekSubsidyPct] = useState<number>(
+    (item?.isCoFundedPromo ?? presets.isCoFundedPromo ?? true)
+      ? (item?.gojekSubsidyPct ?? presets.gojekSubsidyPct ?? 25)
+      : 0
+  );
+  const isCoFundedPromo = gojekSubsidyPct > 0;
   const [notes, setNotes] = useState(item?.notes || '');
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -183,7 +187,7 @@ export function EditMenuModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-modal-backdrop"
       onClick={onClose}
     >
       <div
@@ -191,7 +195,7 @@ export function EditMenuModal({
         aria-modal="true"
         aria-labelledby="edit-menu-modal-title"
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-modal-panel"
       >
         {/* Minimalist Header */}
         <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">
@@ -530,8 +534,8 @@ export function EditMenuModal({
 
         {/* Confirmation Dialog */}
         {isConfirmOpen && (
-          <div className="absolute inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl border border-slate-200 p-5 max-w-sm w-full space-y-4 text-slate-800">
+          <div className="absolute inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4 animate-modal-backdrop">
+            <div className="bg-white rounded-xl shadow-xl border border-slate-200 p-5 max-w-sm w-full space-y-4 text-slate-800 animate-modal-panel">
               <div>
                 <h4 className="text-sm font-bold text-slate-900">
                   Konfirmasi Perubahan Menu

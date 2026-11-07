@@ -229,15 +229,20 @@ export const PricingTableRow = memo(function PricingTableRow({
           <button
             type="button"
             onClick={() => {
-              const current = item.gojekSubsidyPct ?? 25;
-              const next = current === 25 ? 30 : current === 30 ? 0 : 25;
-              onUpdateItem(item.id, { gojekSubsidyPct: next });
+              const effectiveCurrent =
+                (item.isCoFundedPromo ?? true) ? (item.gojekSubsidyPct ?? 25) : 0;
+              const next =
+                effectiveCurrent === 25 ? 30 : effectiveCurrent === 30 ? 0 : 25;
+              onUpdateItem(item.id, {
+                gojekSubsidyPct: next,
+                isCoFundedPromo: next > 0,
+              });
             }}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200/80 hover:bg-slate-200/70 transition-colors cursor-pointer tabular-nums"
             title="Klik untuk ubah skema subsidi Gojek (25% / 30% / 0%)"
           >
             <span>
-              {(item.gojekSubsidyPct ?? 25) > 0
+              {((item.isCoFundedPromo ?? true) ? (item.gojekSubsidyPct ?? 25) : 0) > 0
                 ? `Subsidi ${item.gojekSubsidyPct ?? 25}%`
                 : 'Mandiri (0%)'}
             </span>

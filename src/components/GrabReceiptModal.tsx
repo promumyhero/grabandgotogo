@@ -104,7 +104,7 @@ export function GrabReceiptModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-modal-backdrop"
       onClick={onClose}
     >
       <div
@@ -112,7 +112,7 @@ export function GrabReceiptModal({
         aria-modal="true"
         aria-labelledby="grab-receipt-title"
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-modal-panel"
       >
         {/* Minimalist Header */}
         <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">

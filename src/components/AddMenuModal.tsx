@@ -59,7 +59,7 @@ export function AddMenuModal({
     isGrab ? presets.isBoosterActiveDefault : false
   );
   const [gojekSubsidyPct, setGojekSubsidyPct] = useState<number>(
-    presets.gojekSubsidyPct ?? 25
+    (presets.isCoFundedPromo ?? true) ? (presets.gojekSubsidyPct ?? 25) : 0
   );
   const [notes, setNotes] = useState('');
   const [inferredBadge, setInferredBadge] = useState<string | null>(null);
@@ -80,6 +80,7 @@ export function AddMenuModal({
   if (!isOpen) return null;
 
   const suggestions = getFoodSuggestions(name, existingItems, categories, 6);
+  const effectiveCoFunded = gojekSubsidyPct > 0;
 
   const forwardCalc = calculateForward(
     displayPrice,
@@ -91,7 +92,7 @@ export function AddMenuModal({
     isBoosterActive,
     channel,
     gojekSubsidyPct,
-    presets.isCoFundedPromo ?? true
+    effectiveCoFunded
   );
 
   const recommendation = calculateRecommendedPrice(
@@ -104,7 +105,7 @@ export function AddMenuModal({
     presets.roundingRule,
     channel,
     gojekSubsidyPct,
-    presets.isCoFundedPromo ?? true
+    effectiveCoFunded
   );
 
   const handleApplyRecommended = () => {
@@ -141,7 +142,7 @@ export function AddMenuModal({
         presets.roundingRule,
         channel,
         gojekSubsidyPct,
-        presets.isCoFundedPromo ?? true
+        effectiveCoFunded
       );
       setDisplayPrice(rec.roundedRecommendedPrice);
     }
@@ -173,7 +174,7 @@ export function AddMenuModal({
       marketingBoosterPct: isGrab ? presets.marketingBoosterPct : 0,
       isBoosterActive: isGrab ? isBoosterActive : false,
       gojekSubsidyPct: !isGrab ? gojekSubsidyPct : undefined,
-      isCoFundedPromo: !isGrab ? (presets.isCoFundedPromo ?? true) : undefined,
+      isCoFundedPromo: !isGrab ? effectiveCoFunded : undefined,
       notes: notes.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -185,7 +186,7 @@ export function AddMenuModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-modal-backdrop"
       onClick={onClose}
     >
       <div
@@ -193,7 +194,7 @@ export function AddMenuModal({
         aria-modal="true"
         aria-labelledby="add-menu-modal-title"
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-modal-panel"
       >
         {/* Minimalist Header */}
         <div className="px-5 py-4 border-b border-slate-200/80 flex items-center justify-between">
@@ -318,7 +319,7 @@ export function AddMenuModal({
               </div>
 
               {showHppHelper && (
-                <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 animate-popover">
                   <div className="grid grid-cols-3 gap-1.5">
                     <div>
                       <label className="block text-[10px] font-medium text-slate-500 mb-0.5">

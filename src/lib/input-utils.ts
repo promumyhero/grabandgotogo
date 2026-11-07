@@ -31,7 +31,9 @@ export function sanitizeNumericInput(
     cleaned = '0';
   }
 
-  const parsed = options?.allowDecimals ? parseFloat(cleaned) : parseFloat(cleaned);
+  const parsed = options?.allowDecimals
+    ? parseFloat(cleaned)
+    : Math.trunc(parseFloat(cleaned));
   let num = isNaN(parsed) ? (options?.defaultValue ?? 0) : parsed;
 
   if (options?.min !== undefined && num < options.min) {

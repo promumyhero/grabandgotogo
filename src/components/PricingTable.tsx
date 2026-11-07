@@ -30,6 +30,7 @@ import { PricingTableRow } from '@/components/pricing-table/PricingTableRow';
 import { PricingItemCard } from '@/components/pricing-table/PricingItemCard';
 import { BulkActionBar } from '@/components/pricing-table/BulkActionBar';
 import { TablePagination } from '@/components/pricing-table/TablePagination';
+import { PricingTableRowsSkeleton } from '@/components/DashboardSkeleton';
 
 interface PricingTableProps {
   channel: WorkspaceChannel;
@@ -493,7 +494,7 @@ export function PricingTable({
 
             {/* Floating Search Autocomplete */}
             {isSearchFocused && searchQuery.trim().length > 0 && (
-              <div className="absolute right-0 sm:left-0 top-full mt-1.5 z-30 w-72 sm:w-80 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute right-0 sm:left-0 top-full mt-1.5 z-30 w-72 sm:w-80 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden animate-popover">
                 {(inferredCategory || matchedCategories.length > 0) && (
                   <div className="p-2.5 bg-slate-50 border-b border-slate-100">
                     <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
@@ -674,149 +675,224 @@ export function PricingTable({
         }}
       />
 
-      {/* VIEW A: Card Grid View */}
-      <div className={`${viewMode === 'cards' ? 'block' : 'hidden md:hidden'} p-4`}>
-        {sortedItems.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 font-medium text-xs">
-            Tidak ada menu yang sesuai dengan filter.
+      {isLoading ? (
+        <PricingTableRowsSkeleton rows={Math.min(itemsPerPage, 5)} />
+      ) : items.length === 0 ? (
+        /* Actionable Empty Workspace State (e.g. after Kosongkan Semua Menu) */
+        <div className="px-4 py-14 text-center space-y-3 animate-tab-panel">
+          <div className="w-11 h-11 rounded-2xl bg-slate-100 border border-slate-200/80 flex items-center justify-center mx-auto text-slate-500">
+            <Utensils className="w-5 h-5" />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {paginatedItems.map((item) => (
-              <PricingItemCard
-                key={`card-${item.id}`}
-                item={item}
-                calc={calculations.get(item.id)}
-                isSelected={activeSelectedSet.has(item.id)}
-                isHighlighted={item.id === highlightedItemId}
-                onToggleSelect={toggleSelectOne}
-                onUpdateItem={onUpdateItem}
-                onApplyIdealPrice={onApplyIdealPrice}
-                onOpenEditModal={onOpenEditModal}
-                onOpenReceiptModal={onOpenReceiptModal}
-                onDuplicateItem={onDuplicateItem}
-                onDeleteItem={onDeleteItem}
-              />
-            ))}
+          <div className="space-y-1 max-w-md mx-auto">
+            <p className="text-sm font-semibold text-slate-900">
+              Belum ada daftar menu di workspace {isGrab ? 'GrabFood' : 'GoFood'}
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Tambahkan menu asli restoran Anda satu per satu atau impor sekaligus dari file CSV untuk mulai menghitung harga jual aman.
+            </p>
           </div>
-        )}
-      </div>
-
-      {/* VIEW B: High-Density Table View */}
-      <div className={`${viewMode === 'table' ? 'block' : 'hidden md:block'} overflow-x-auto`}>
-        <table className="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr className="bg-slate-50/70 text-slate-500 font-medium text-[11px] uppercase tracking-wider border-b border-slate-200/80">
-              <th scope="col" className="pl-4 pr-2 py-3 w-9 text-center">
-                <input
-                  type="checkbox"
-                  checked={isAllPageSelected}
-                  onChange={toggleSelectPage}
-                  disabled={paginatedItems.length === 0}
-                  className="w-3.5 h-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-500 cursor-pointer disabled:opacity-40"
-                  title="Pilih semua menu di halaman ini"
-                  aria-label="Pilih semua menu di halaman ini"
-                />
-              </th>
-              <th scope="col" className="px-3 py-3 whitespace-nowrap text-left min-w-50">
-                <button
-                  type="button"
-                  onClick={() => handleSortColumn('NAME')}
-                  className="group inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer uppercase"
-                >
-                  <span>Menu</span>
-                  {renderSortIcon('NAME')}
-                </button>
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
-                <button
-                  type="button"
-                  onClick={() => handleSortColumn('TARGET_PRICE')}
-                  className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
-                >
-                  <span>Target Offline</span>
-                  {renderSortIcon('TARGET_PRICE')}
-                </button>
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-32.5">
-                <button
-                  type="button"
-                  onClick={() => handleSortColumn('DISPLAY_PRICE')}
-                  className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
-                >
-                  <span>Harga App</span>
-                  {renderSortIcon('DISPLAY_PRICE')}
-                </button>
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-32.5">
-                {isGrab ? 'Diskon Mitra' : 'Promo'}
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-28">
-                {isGrab ? 'Booster' : 'Subsidi'}
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
-                Potongan
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
-                <button
-                  type="button"
-                  onClick={() => handleSortColumn('NET_PAYOUT')}
-                  className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
-                >
-                  <span>Net Payout</span>
-                  {renderSortIcon('NET_PAYOUT')}
-                </button>
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-30">
-                <button
-                  type="button"
-                  onClick={() => handleSortColumn('VARIANCE')}
-                  className="group inline-flex items-center justify-center gap-1 hover:text-slate-900 cursor-pointer mx-auto uppercase"
-                >
-                  <span>Selisih</span>
-                  {renderSortIcon('VARIANCE')}
-                </button>
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-40">
-                Harga Ideal
-              </th>
-              <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-28">
-                Aksi
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onOpenAddModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Menu Pertama</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-slate-500" />
+              <span>Impor dari CSV</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* VIEW A: Card Grid View (Mutually exclusive with Table View across all breakpoints) */}
+          <div
+            className={`${
+              viewMode === 'cards' ? 'block animate-tab-panel' : 'hidden'
+            } p-4`}
+          >
             {sortedItems.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={11}
-                  className="px-4 py-12 text-center text-slate-400 font-medium"
-                >
+              <div className="py-12 text-center space-y-2">
+                <p className="text-slate-500 font-medium text-xs">
                   Tidak ada menu yang sesuai dengan filter pencarian.
-                </td>
-              </tr>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilterMode('ALL');
+                    setSelectedCategory('ALL');
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs font-semibold text-slate-900 underline underline-offset-2 hover:text-slate-700 cursor-pointer"
+                >
+                  Reset semua filter
+                </button>
+              </div>
             ) : (
-              paginatedItems.map((item) => (
-                <PricingTableRow
-                  key={item.id}
-                  item={item}
-                  calc={calculations.get(item.id)}
-                  isGrab={isGrab}
-                  isSelected={activeSelectedSet.has(item.id)}
-                  isHighlighted={item.id === highlightedItemId}
-                  onToggleSelect={toggleSelectOne}
-                  onUpdateItem={onUpdateItem}
-                  onApplyIdealPrice={onApplyIdealPrice}
-                  onOpenEditModal={onOpenEditModal}
-                  onOpenReceiptModal={onOpenReceiptModal}
-                  onDuplicateItem={onDuplicateItem}
-                  onDeleteItem={onDeleteItem}
-                />
-              ))
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {paginatedItems.map((item) => (
+                  <PricingItemCard
+                    key={`card-${item.id}`}
+                    item={item}
+                    calc={calculations.get(item.id)}
+                    isSelected={activeSelectedSet.has(item.id)}
+                    isHighlighted={item.id === highlightedItemId}
+                    onToggleSelect={toggleSelectOne}
+                    onUpdateItem={onUpdateItem}
+                    onApplyIdealPrice={onApplyIdealPrice}
+                    onOpenEditModal={onOpenEditModal}
+                    onOpenReceiptModal={onOpenReceiptModal}
+                    onDuplicateItem={onDuplicateItem}
+                    onDeleteItem={onDeleteItem}
+                  />
+                ))}
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {/* VIEW B: High-Density Table View (Mutually exclusive with Card Grid View) */}
+          <div
+            className={`${
+              viewMode === 'table' ? 'block animate-tab-panel' : 'hidden'
+            } overflow-x-auto`}
+          >
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/70 text-slate-500 font-medium text-[11px] uppercase tracking-wider border-b border-slate-200/80">
+                  <th scope="col" className="pl-4 pr-2 py-3 w-9 text-center">
+                    <input
+                      type="checkbox"
+                      checked={isAllPageSelected}
+                      onChange={toggleSelectPage}
+                      disabled={paginatedItems.length === 0}
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-500 cursor-pointer disabled:opacity-40"
+                      title="Pilih semua menu di halaman ini"
+                      aria-label="Pilih semua menu di halaman ini"
+                    />
+                  </th>
+                  <th scope="col" className="px-3 py-3 whitespace-nowrap text-left min-w-50">
+                    <button
+                      type="button"
+                      onClick={() => handleSortColumn('NAME')}
+                      className="group inline-flex items-center gap-1 hover:text-slate-900 cursor-pointer uppercase"
+                    >
+                      <span>Menu</span>
+                      {renderSortIcon('NAME')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
+                    <button
+                      type="button"
+                      onClick={() => handleSortColumn('TARGET_PRICE')}
+                      className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
+                    >
+                      <span>Target Offline</span>
+                      {renderSortIcon('TARGET_PRICE')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-32.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSortColumn('DISPLAY_PRICE')}
+                      className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
+                    >
+                      <span>Harga App</span>
+                      {renderSortIcon('DISPLAY_PRICE')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-32.5">
+                    {isGrab ? 'Diskon Mitra' : 'Promo'}
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-28">
+                    {isGrab ? 'Booster' : 'Subsidi'}
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
+                    Potongan
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-30">
+                    <button
+                      type="button"
+                      onClick={() => handleSortColumn('NET_PAYOUT')}
+                      className="group inline-flex items-center justify-end gap-1 hover:text-slate-900 cursor-pointer ml-auto uppercase"
+                    >
+                      <span>Net Payout</span>
+                      {renderSortIcon('NET_PAYOUT')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-30">
+                    <button
+                      type="button"
+                      onClick={() => handleSortColumn('VARIANCE')}
+                      className="group inline-flex items-center justify-center gap-1 hover:text-slate-900 cursor-pointer mx-auto uppercase"
+                    >
+                      <span>Selisih</span>
+                      {renderSortIcon('VARIANCE')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-right min-w-40">
+                    Harga Ideal
+                  </th>
+                  <th scope="col" className="px-3.5 py-3 whitespace-nowrap text-center min-w-28">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sortedItems.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={11}
+                      className="px-4 py-12 text-center space-y-2"
+                    >
+                      <div className="text-slate-500 font-medium text-xs">
+                        Tidak ada menu yang sesuai dengan filter pencarian.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setFilterMode('ALL');
+                          setSelectedCategory('ALL');
+                          setCurrentPage(1);
+                        }}
+                        className="text-xs font-semibold text-slate-900 underline underline-offset-2 hover:text-slate-700 cursor-pointer"
+                      >
+                        Reset semua filter
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedItems.map((item) => (
+                    <PricingTableRow
+                      key={item.id}
+                      item={item}
+                      calc={calculations.get(item.id)}
+                      isGrab={isGrab}
+                      isSelected={activeSelectedSet.has(item.id)}
+                      isHighlighted={item.id === highlightedItemId}
+                      onToggleSelect={toggleSelectOne}
+                      onUpdateItem={onUpdateItem}
+                      onApplyIdealPrice={onApplyIdealPrice}
+                      onOpenEditModal={onOpenEditModal}
+                      onOpenReceiptModal={onOpenReceiptModal}
+                      onDuplicateItem={onDuplicateItem}
+                      onDeleteItem={onDeleteItem}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {/* Table Footer & Pagination */}
       <TablePagination

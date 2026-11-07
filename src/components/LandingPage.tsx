@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { ViewTransition, useState } from 'react';
 import { AuthUser } from '@/types/pricing';
 import {
   calculateForward,
@@ -71,19 +71,25 @@ export function LandingPage({
       {/* Top Sticky Navbar */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-slate-200/80">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
-              <Store className="w-4 h-4" />
+          <ViewTransition
+            name="brand-identity"
+            share="morph"
+            default="none"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <Store className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-sm sm:text-base font-bold tracking-tight text-slate-950 block leading-none">
+                  FoodMerchant
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
+                  Pricing & Margin Engine
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-sm sm:text-base font-bold tracking-tight text-slate-950 block leading-none">
-                FoodMerchant
-              </span>
-              <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
-                Pricing & Margin Engine
-              </span>
-            </div>
-          </div>
+          </ViewTransition>
 
           <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-slate-600">
             <a href="#masalah-solusi" className="hover:text-slate-950 transition-colors">
@@ -228,49 +234,51 @@ export function LandingPage({
                     </div>
                   </div>
 
-                  {/* Card 1: Cara Lama (Boncos) */}
-                  <div className="rounded-xl bg-white border border-rose-200 p-3.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">
-                        ✗ Cara Tebak Markup Biasa (+25%)
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                        <AlertTriangle className="w-3 h-3" />
-                        Boncos {formatRupiah(naiveResult.variance)}
-                      </span>
+                  <div key={previewPlatform} className="space-y-4 animate-tab-panel">
+                    {/* Card 1: Cara Lama (Boncos) */}
+                    <div className="rounded-xl bg-white border border-rose-200 p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">
+                          ✗ Cara Tebak Markup Biasa (+25%)
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                          <AlertTriangle className="w-3 h-3" />
+                          Boncos {formatRupiah(naiveResult.variance)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Jika Harga Tayang hanya dipasang <strong>{formatRupiah(naivePrice)}</strong>, setelah dipotong diskon 25% dan komisi {previewPlatform === 'GRABFOOD' ? 'Grab 20% + Booster 14%' : 'GoFood 20% + beban promo'}, uang yang cair hanya:
+                      </p>
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 text-xs">
+                        <span className="text-slate-500">Uang Bersih Masuk Rekening:</span>
+                        <span className="font-bold text-rose-600">
+                          {formatRupiah(naiveResult.netPayout)} (Rugi {formatRupiah(Math.abs(naiveResult.variance))}/porsi)
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Jika Harga Tayang hanya dipasang <strong>{formatRupiah(naivePrice)}</strong>, setelah dipotong diskon 25% dan komisi {previewPlatform === 'GRABFOOD' ? 'Grab 20% + Booster 14%' : 'GoFood 20% + beban promo'}, uang yang cair hanya:
-                    </p>
-                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 text-xs">
-                      <span className="text-slate-500">Uang Bersih Masuk Rekening:</span>
-                      <span className="font-bold text-rose-600">
-                        {formatRupiah(naiveResult.netPayout)} (Rugi {formatRupiah(Math.abs(naiveResult.variance))}/porsi)
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Card 2: Dengan Pricing Engine (Aman) */}
-                  <div className="rounded-xl bg-white border border-emerald-200 p-3.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">
-                        ✓ Rekomendasi Pricing Engine
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Margin Aman ({formatRupiah(safeRecommendation.recommendedVariance, true)})
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Agar uang bersih tetap cair minimal <strong>Rp 28.000</strong> setelah seluruh potongan {previewPlatform === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}, Harga Tayang yang wajib dipasang adalah:
-                    </p>
-                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 text-xs">
-                      <span className="font-semibold text-slate-700">
-                        Harga Tayang Aman: <strong>{formatRupiah(safeRecommendation.roundedRecommendedPrice)}</strong>
-                      </span>
-                      <span className="font-bold text-emerald-700">
-                        Cair {formatRupiah(safeRecommendation.recommendedNetPayout)}
-                      </span>
+                    {/* Card 2: Dengan Pricing Engine (Aman) */}
+                    <div className="rounded-xl bg-white border border-emerald-200 p-3.5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900">
+                          ✓ Rekomendasi Pricing Engine
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Margin Aman ({formatRupiah(safeRecommendation.recommendedVariance, true)})
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Agar uang bersih tetap cair minimal <strong>Rp 28.000</strong> setelah seluruh potongan {previewPlatform === 'GRABFOOD' ? 'GrabFood' : 'GoFood'}, Harga Tayang yang wajib dipasang adalah:
+                      </p>
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 text-xs">
+                        <span className="font-semibold text-slate-700">
+                          Harga Tayang Aman: <strong>{formatRupiah(safeRecommendation.roundedRecommendedPrice)}</strong>
+                        </span>
+                        <span className="font-bold text-emerald-700">
+                          Cair {formatRupiah(safeRecommendation.recommendedNetPayout)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

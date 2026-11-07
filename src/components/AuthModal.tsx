@@ -83,7 +83,7 @@ export function AuthModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto animate-modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -92,7 +92,7 @@ export function AuthModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-modal-title"
-        className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden my-auto"
+        className="bg-white rounded-2xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden my-auto animate-modal-panel"
       >
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
@@ -175,7 +175,7 @@ export function AuthModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form key={mode} onSubmit={handleSubmit} className="p-6 space-y-4 animate-tab-panel">
           {errorMessage && (
             <div
               role="alert"
