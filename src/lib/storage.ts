@@ -381,7 +381,7 @@ export function loadMenuItems(
     const keys = getScopedKeys(merchantId);
     const key = channel === 'GOFOOD' ? keys.GOFOOD_ITEMS : keys.GRABFOOD_ITEMS;
     const raw = localStorage.getItem(key);
-    if (!raw) {
+    if (raw === null) {
       const initial =
         channel === 'GOFOOD'
           ? INITIAL_GOFOOD_MENU_ITEMS
@@ -390,11 +390,12 @@ export function loadMenuItems(
       return initial;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0
-      ? parsed
-      : channel === 'GOFOOD'
-        ? INITIAL_GOFOOD_MENU_ITEMS
-        : INITIAL_GRAB_MENU_ITEMS;
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return channel === 'GOFOOD'
+      ? INITIAL_GOFOOD_MENU_ITEMS
+      : INITIAL_GRAB_MENU_ITEMS;
   } catch (e) {
     console.error('Failed to load menu items from localStorage:', e);
     return channel === 'GOFOOD'
@@ -585,6 +586,168 @@ export function createFullBackupObject(
   };
 }
 
+function sanitizeBackupText(val: unknown, maxLen = 180): string {
+  if (typeof val !== 'string') return '';
+  return val
+    .replace(/[\u0000-\u001F\u007F<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen);
+}
+
+function clampBackupNum(val: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function sanitizeBackupChannelData(
+  rawChannel: Partial<FullRestoBackupPayload['grabfood']> | undefined,
+  channel: WorkspaceChannel,
+  merchantId?: string | null
+) {
+  if (!rawChannel || typeof rawChannel !== 'object') return;
+  const fallbackPresets =
+    channel === 'GOFOOD' ? DEFAULT_GOFOOD_PRESETS : DEFAULT_GRAB_PRESETS;
+
+  if (Array.isArray(rawChannel.items)) {
+    const cleanItems: MenuItem[] = rawChannel.items
+      .slice(0, 500)
+      .filter((it) => it && typeof it === 'object' && sanitizeBackupText(it.name, 200))
+      .map((it, idx) => {
+        const subsidy = clampBackupNum(
+          it.gojekSubsidyPct,
+          0,
+          100,
+          fallbackPresets.gojekSubsidyPct ?? 25
+        );
+        const coFunded =
+          it.isCoFundedPromo !== undefined
+            ? Boolean(it.isCoFundedPromo)
+            : subsidy > 0;
+        return {
+          id: sanitizeBackupText(it.id, 80) || `${channel.toLowerCase()}-restored-${Date.now()}-${idx}`,
+          name: sanitizeBackupText(it.name, 200),
+          category: sanitizeBackupText(it.category, 80) || 'Paket Nasi',
+          channel,
+          targetOfflinePrice: Math.round(clampBackupNum(it.targetOfflinePrice, 0, 100_000_000, 0)),
+          displayPrice: Math.round(clampBackupNum(it.displayPrice, 0, 100_000_000, 0)),
+          merchantDiscountType: it.merchantDiscountType === 'NOMINAL' ? 'NOMINAL' : 'PERCENT',
+          merchantDiscountValue: clampBackupNum(it.merchantDiscountValue, 0, 100_000_000, 0),
+          platformCommissionPct: clampBackupNum(
+            it.platformCommissionPct,
+            0,
+            100,
+            fallbackPresets.platformCommissionPct
+          ),
+          marketingBoosterPct: clampBackupNum(
+            it.marketingBoosterPct,
+            0,
+            100,
+            fallbackPresets.marketingBoosterPct
+          ),
+          isBoosterActive: Boolean(it.isBoosterActive),
+          gojekSubsidyPct: coFunded ? subsidy : 0,
+          isCoFundedPromo: coFunded,
+          notes: sanitizeBackupText(it.notes, 300) || undefined,
+          createdAt: typeof it.createdAt === 'string' ? it.createdAt : new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    saveMenuItems(channel, cleanItems, merchantId);
+  }
+
+  if (rawChannel.presets && typeof rawChannel.presets === 'object') {
+    const p = rawChannel.presets;
+    const validRounding = ['EXACT', 'CEIL_100', 'CEIL_500', 'CEIL_1000'].includes(
+      p.roundingRule
+    )
+      ? p.roundingRule
+      : fallbackPresets.roundingRule;
+    const subsidy = clampBackupNum(
+      p.gojekSubsidyPct,
+      0,
+      100,
+      fallbackPresets.gojekSubsidyPct ?? 25
+    );
+    const coFunded =
+      p.isCoFundedPromo !== undefined ? Boolean(p.isCoFundedPromo) : subsidy > 0;
+
+    savePresets(
+      channel,
+      {
+        platformCommissionPct: clampBackupNum(
+          p.platformCommissionPct,
+          0,
+          100,
+          fallbackPresets.platformCommissionPct
+        ),
+        marketingBoosterPct: clampBackupNum(
+          p.marketingBoosterPct,
+          0,
+          100,
+          fallbackPresets.marketingBoosterPct
+        ),
+        merchantDiscountValue: clampBackupNum(
+          p.merchantDiscountValue,
+          0,
+          100_000_000,
+          fallbackPresets.merchantDiscountValue
+        ),
+        merchantDiscountType:
+          p.merchantDiscountType === 'NOMINAL' ? 'NOMINAL' : 'PERCENT',
+        roundingRule: validRounding,
+        isBoosterActiveDefault: Boolean(
+          p.isBoosterActiveDefault ?? fallbackPresets.isBoosterActiveDefault
+        ),
+        gojekSubsidyPct: coFunded ? subsidy : 0,
+        isCoFundedPromo: coFunded,
+      },
+      merchantId
+    );
+  }
+
+  if (Array.isArray(rawChannel.categories)) {
+    const cleanCategories = Array.from(
+      new Set(
+        rawChannel.categories
+          .map((c) => sanitizeBackupText(c, 80))
+          .filter(Boolean)
+          .slice(0, 50)
+      )
+    );
+    if (cleanCategories.length > 0) {
+      saveCategories(channel, cleanCategories, merchantId);
+    }
+  }
+
+  if (Array.isArray(rawChannel.customTemplates)) {
+    const cleanTemplates: DiscountTemplate[] = rawChannel.customTemplates
+      .slice(0, 30)
+      .filter((t) => t && typeof t === 'object' && !t.isBuiltIn && sanitizeBackupText(t.name, 80))
+      .map((t, idx) => ({
+        id: sanitizeBackupText(t.id, 80) || `tpl-${Date.now()}-${idx}`,
+        name: sanitizeBackupText(t.name, 80),
+        channel,
+        platformCommissionPct: clampBackupNum(t.platformCommissionPct, 0, 100, 20),
+        marketingBoosterPct: clampBackupNum(t.marketingBoosterPct, 0, 100, 0),
+        isBoosterActiveDefault: Boolean(t.isBoosterActiveDefault),
+        merchantDiscountType:
+          t.merchantDiscountType === 'NOMINAL' ? 'NOMINAL' : 'PERCENT',
+        merchantDiscountValue: clampBackupNum(t.merchantDiscountValue, 0, 100_000_000, 0),
+        gojekSubsidyPct: clampBackupNum(t.gojekSubsidyPct, 0, 100, 25),
+        isCoFundedPromo: Boolean(t.isCoFundedPromo ?? true),
+        roundingRule: ['EXACT', 'CEIL_100', 'CEIL_500', 'CEIL_1000'].includes(
+          t.roundingRule
+        )
+          ? t.roundingRule
+          : 'CEIL_500',
+        isBuiltIn: false,
+      }));
+    saveDiscountTemplates(channel, cleanTemplates, merchantId);
+  }
+}
+
 export function restoreFullBackupObject(
   rawJson: string,
   merchantId?: string | null
@@ -598,31 +761,8 @@ export function restoreFullBackupObject(
       };
     }
 
-    if (Array.isArray(parsed.grabfood.items)) {
-      saveMenuItems('GRABFOOD', parsed.grabfood.items, merchantId);
-    }
-    if (parsed.grabfood.presets) {
-      savePresets('GRABFOOD', parsed.grabfood.presets, merchantId);
-    }
-    if (Array.isArray(parsed.grabfood.categories)) {
-      saveCategories('GRABFOOD', parsed.grabfood.categories, merchantId);
-    }
-    if (Array.isArray(parsed.grabfood.customTemplates)) {
-      saveDiscountTemplates('GRABFOOD', parsed.grabfood.customTemplates, merchantId);
-    }
-
-    if (Array.isArray(parsed.gofood.items)) {
-      saveMenuItems('GOFOOD', parsed.gofood.items, merchantId);
-    }
-    if (parsed.gofood.presets) {
-      savePresets('GOFOOD', parsed.gofood.presets, merchantId);
-    }
-    if (Array.isArray(parsed.gofood.categories)) {
-      saveCategories('GOFOOD', parsed.gofood.categories, merchantId);
-    }
-    if (Array.isArray(parsed.gofood.customTemplates)) {
-      saveDiscountTemplates('GOFOOD', parsed.gofood.customTemplates, merchantId);
-    }
+    sanitizeBackupChannelData(parsed.grabfood, 'GRABFOOD', merchantId);
+    sanitizeBackupChannelData(parsed.gofood, 'GOFOOD', merchantId);
 
     return { success: true };
   } catch {
