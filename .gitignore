@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# specs, tasks & internal planning docs
+SPEC.md
+spec.md
+/tasks/
+
