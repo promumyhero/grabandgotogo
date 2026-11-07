@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
           id: true,
           name: true,
           email: true,
+          phone: true,
           passwordHash: true,
           createdAt: true,
         },
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
         id: merchant.id,
         name: merchant.name,
         email: merchant.email,
+        phone: merchant.phone ?? undefined,
         createdAt: merchant.createdAt.toISOString(),
       };
 

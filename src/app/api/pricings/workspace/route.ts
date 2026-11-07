@@ -38,27 +38,28 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const workspace = await prisma.workspace.findUnique({
-      where: {
-        merchantId_channel: {
+    const [workspace, dbTemplates] = await Promise.all([
+      prisma.workspace.findUnique({
+        where: {
+          merchantId_channel: {
+            merchantId: sessionUser.id,
+            channel: safeChannel,
+          },
+        },
+        include: {
+          menuItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
+      }),
+      prisma.discountTemplate.findMany({
+        where: {
           merchantId: sessionUser.id,
           channel: safeChannel,
         },
-      },
-      include: {
-        menuItems: {
-          orderBy: { sortOrder: 'asc' },
-        },
-      },
-    });
-
-    const dbTemplates = await prisma.discountTemplate.findMany({
-      where: {
-        merchantId: sessionUser.id,
-        channel: safeChannel,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
 
     const builtInForChannel = BUILT_IN_DISCOUNT_TEMPLATES.filter(
       (t) => t.channel === safeChannel
@@ -145,18 +146,28 @@ export async function GET(req: NextRequest) {
       updatedAt: item.updatedAt.toISOString(),
     }));
 
-    return NextResponse.json({
-      success: true,
-      source: 'supabase_postgres',
-      workspace: {
-        id: workspace.id,
-        channel: safeChannel,
-        presets,
-        categories: parsedCategories,
-        items: mappedItems,
+    const hasSyncedData =
+      workspace.menuItems.length > 0 ||
+      Math.abs(workspace.updatedAt.getTime() - workspace.createdAt.getTime()) > 500;
+
+    return NextResponse.json(
+      {
+        success: true,
+        source: 'supabase_postgres',
+        workspace: {
+          id: workspace.id,
+          channel: safeChannel,
+          presets,
+          categories: parsedCategories,
+          items: mappedItems,
+          hasSyncedData,
+        },
+        discountTemplates: [...builtInForChannel, ...customTemplates],
       },
-      discountTemplates: [...builtInForChannel, ...customTemplates],
-    });
+      {
+        headers: { 'Cache-Control': 'no-store, max-age=0' },
+      }
+    );
   } catch (error) {
     console.error('Fetch workspace API error:', error);
     return NextResponse.json(

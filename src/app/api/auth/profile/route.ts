@@ -230,6 +230,28 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
+
+    const rate = checkRateLimit(
+      `profile_delete:${ip}:${sessionUser.id}`,
+      5,
+      15 * 60 * 1000
+    );
+    if (!rate.allowed) {
+      return NextResponse.json(
+        {
+          error: `Terlalu banyak percobaan penghapusan akun. Coba lagi dalam ${rate.retryAfterSec} detik.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rate.retryAfterSec) },
+        }
+      );
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json(

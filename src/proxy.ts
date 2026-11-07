@@ -19,12 +19,22 @@ export function proxy(request: NextRequest) {
     method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 
   if (isProtectedApi && isMutatingMethod) {
+    const secFetchSite = request.headers.get('sec-fetch-site');
+    if (secFetchSite === 'cross-site') {
+      return NextResponse.json(
+        { error: 'Forbidden: Cross-site request blocked by CSRF policy' },
+        { status: 403 }
+      );
+    }
+
     const origin = request.headers.get('origin');
+    const referer = request.headers.get('referer');
     const host = request.headers.get('host');
-    if (origin && host) {
+
+    if (host && (origin || referer)) {
       try {
-        const originHost = new URL(origin).host;
-        if (originHost !== host) {
+        const sourceHost = new URL((origin || referer)!).host;
+        if (sourceHost !== host) {
           return NextResponse.json(
             { error: 'Forbidden: Cross-origin request blocked by CSRF policy' },
             { status: 403 }
@@ -32,7 +42,7 @@ export function proxy(request: NextRequest) {
         }
       } catch {
         return NextResponse.json(
-          { error: 'Forbidden: Malformed Origin header' },
+          { error: 'Forbidden: Malformed Origin or Referer header' },
           { status: 403 }
         );
       }
@@ -46,6 +56,12 @@ export function proxy(request: NextRequest) {
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    response.headers.set(
+      'Strict-Transport-Security',
+      'max-age=63072000; includeSubDomains; preload'
+    );
+  }
   response.headers.set(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=(), payment=()'

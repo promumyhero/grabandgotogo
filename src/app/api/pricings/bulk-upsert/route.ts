@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, isDatabaseConfigured } from '@/lib/prisma';
 import { getSessionUser } from '@/lib/auth';
-import { clampNumber, sanitizePlainText } from '@/lib/security';
+import { checkRateLimit, clampNumber, sanitizePlainText } from '@/lib/security';
 import {
   DiscountTemplate,
   GlobalPresets,
@@ -18,7 +18,6 @@ export interface BulkUpsertPayload {
 }
 
 const MAX_BATCH_ITEMS = 500;
-const CHUNK_SIZE = 25;
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +30,28 @@ export async function POST(req: NextRequest) {
             'Fitur Simpan ke Cloud Database hanya tersedia untuk akun Resto terdaftar. Silakan masuk terlebih dahulu.',
         },
         { status: 401 }
+      );
+    }
+
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
+
+    const rate = checkRateLimit(
+      `bulk_upsert:${ip}:${sessionUser.id}`,
+      30,
+      5 * 60 * 1000
+    );
+    if (!rate.allowed) {
+      return NextResponse.json(
+        {
+          error: `Terlalu banyak permintaan sinkronisasi. Silakan tunggu ${rate.retryAfterSec} detik.`,
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rate.retryAfterSec) },
+        }
       );
     }
 
@@ -120,6 +141,7 @@ export async function POST(req: NextRequest) {
           ...(sanitizedCategories && { categories: sanitizedCategories }),
         },
         update: {
+          name: `${sessionUser.name} - ${safeChannel === 'GOFOOD' ? 'GoFood' : 'GrabFood'}`,
           defaultCommissionPct: defaultComm,
           defaultBoosterPct: defaultBooster,
           defaultDiscountPct: defaultDisc,
@@ -129,6 +151,7 @@ export async function POST(req: NextRequest) {
           isCoFundedPromo,
           roundingRule,
           ...(sanitizedCategories && { categories: sanitizedCategories }),
+          updatedAt: new Date(),
         },
       });
 
@@ -137,47 +160,55 @@ export async function POST(req: NextRequest) {
         where: { workspaceId: workspace.id },
       });
 
-      for (let i = 0; i < validItems.length; i += CHUNK_SIZE) {
-        const chunk = validItems.slice(i, i + CHUNK_SIZE);
-        await Promise.all(
-          chunk.map((item, idx) => {
-            // Scope item ID by workspaceId to prevent cross-tenant primary key collisions
-            const rawId = sanitizePlainText(item.id, 80);
-            const scopedId = rawId.startsWith(`${workspace.id}_`)
-              ? rawId
-              : `${workspace.id}_${rawId}`;
+      const seenIds = new Set<string>();
+      const itemsToInsert = validItems
+        .map((item, index) => {
+          // Scope item ID by workspaceId to prevent cross-tenant primary key collisions
+          const rawId = sanitizePlainText(item.id, 80);
+          let scopedId = rawId.startsWith(`${workspace.id}_`)
+            ? rawId
+            : `${workspace.id}_${rawId}`;
 
-            return tx.menuItem.create({
-              data: {
-                id: scopedId,
-                workspaceId: workspace.id,
-                name: sanitizePlainText(item.name, 200) || 'Menu Tanpa Nama',
-                category: sanitizePlainText(item.category, 100) || 'Makanan Utama',
-                targetOfflinePrice: Math.round(
-                  clampNumber(item.targetOfflinePrice, 0, 100_000_000, 0)
-                ),
-                displayPrice: Math.round(
-                  clampNumber(item.displayPrice, 0, 100_000_000, 0)
-                ),
-                discountType:
-                  item.merchantDiscountType === 'NOMINAL' ? 'NOMINAL' : 'PERCENT',
-                discountValue: clampNumber(
-                  item.merchantDiscountValue,
-                  0,
-                  100_000_000,
-                  0
-                ),
-                commissionPct: clampNumber(item.platformCommissionPct, 0, 100, 20),
-                boosterPct: clampNumber(item.marketingBoosterPct, 0, 100, 0),
-                isBoosterActive: Boolean(item.isBoosterActive),
-                gojekSubsidyPct: clampNumber(item.gojekSubsidyPct, 0, 100, 25),
-                isCoFundedPromo: Boolean(item.isCoFundedPromo ?? true),
-                notes: item.notes ? sanitizePlainText(item.notes, 500) : null,
-                sortOrder: i + idx,
-              },
-            });
-          })
-        );
+          if (seenIds.has(scopedId)) {
+            scopedId = `${scopedId}_${index}`;
+          }
+          seenIds.add(scopedId);
+
+          return {
+            id: scopedId,
+            workspaceId: workspace.id,
+            name: sanitizePlainText(item.name, 200) || 'Menu Tanpa Nama',
+            category: sanitizePlainText(item.category, 100) || 'Makanan Utama',
+            targetOfflinePrice: Math.round(
+              clampNumber(item.targetOfflinePrice, 0, 100_000_000, 0)
+            ),
+            displayPrice: Math.round(
+              clampNumber(item.displayPrice, 0, 100_000_000, 0)
+            ),
+            discountType:
+              (item.merchantDiscountType === 'NOMINAL' ? 'NOMINAL' : 'PERCENT') as
+                | 'NOMINAL'
+                | 'PERCENT',
+            discountValue: clampNumber(
+              item.merchantDiscountValue,
+              0,
+              100_000_000,
+              0
+            ),
+            commissionPct: clampNumber(item.platformCommissionPct, 0, 100, 20),
+            boosterPct: clampNumber(item.marketingBoosterPct, 0, 100, 0),
+            isBoosterActive: Boolean(item.isBoosterActive),
+            gojekSubsidyPct: clampNumber(item.gojekSubsidyPct, 0, 100, 25),
+            isCoFundedPromo: Boolean(item.isCoFundedPromo ?? true),
+            notes: item.notes ? sanitizePlainText(item.notes, 500) : null,
+            sortOrder: index,
+          };
+        });
+
+      if (itemsToInsert.length > 0) {
+        await tx.menuItem.createMany({
+          data: itemsToInsert,
+        });
       }
 
       // Sync custom discount templates for this merchant & channel if provided

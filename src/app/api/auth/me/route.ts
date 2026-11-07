@@ -3,9 +3,14 @@ import { getSessionUser } from '@/lib/auth';
 
 export async function GET() {
   const user = await getSessionUser();
-  return NextResponse.json({
-    authenticated: Boolean(user),
-    user: user ?? null,
-  });
+  return NextResponse.json(
+    {
+      authenticated: Boolean(user),
+      user: user ?? null,
+    },
+    {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    }
+  );
 }
 

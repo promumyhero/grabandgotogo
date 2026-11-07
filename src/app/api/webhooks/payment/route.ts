@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, isDatabaseConfigured } from '@/lib/prisma';
+import { checkRateLimit } from '@/lib/security';
 import crypto from 'crypto';
 
 interface QrisWebhookPayload {
@@ -44,6 +45,33 @@ function verifyWebhookSignature(
 
 export async function POST(req: NextRequest) {
   try {
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
+
+    const rate = checkRateLimit(`webhook_payment:${ip}`, 60, 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Too many webhook requests' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rate.retryAfterSec) },
+        }
+      );
+    }
+
+    const serverKey = process.env.PAYMENT_GATEWAY_SERVER_KEY || '';
+    if (process.env.NODE_ENV === 'production' && !serverKey) {
+      return NextResponse.json(
+        {
+          error:
+            'Service Unavailable: PAYMENT_GATEWAY_SERVER_KEY must be configured in production.',
+        },
+        { status: 503 }
+      );
+    }
+
     const rawBody = await req.text();
     let payload: QrisWebhookPayload;
 
@@ -78,7 +106,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Strict HMAC verification when PAYMENT_GATEWAY_SERVER_KEY is configured
-    const serverKey = process.env.PAYMENT_GATEWAY_SERVER_KEY || '';
     if (serverKey) {
       const isValid = verifyWebhookSignature(
         order_id,

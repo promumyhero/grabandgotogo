@@ -130,9 +130,22 @@ export interface SignedSessionPayload {
   exp: number;
 }
 
+let ephemeralProdSecret: string | null = null;
+
 function getAuthSecret(): string {
   const secret = process.env.AUTH_SECRET;
   if (secret && secret.length >= 16) return secret;
+
+  if (process.env.NODE_ENV === 'production') {
+    if (!ephemeralProdSecret) {
+      ephemeralProdSecret = crypto.randomBytes(32).toString('hex');
+      console.error(
+        '[SECURITY WARNING] AUTH_SECRET environment variable is missing or shorter than 16 characters in production. Using an ephemeral random secret for this runtime instance. Configure AUTH_SECRET (>= 32 chars) in your deployment environment so sessions persist across instances.'
+      );
+    }
+    return ephemeralProdSecret;
+  }
+
   return 'fmp-fallback-dev-hmac-sha256-secret-key-do-not-use-in-prod';
 }
 

@@ -34,7 +34,7 @@ export async function createMerchantSession(
 
   const signedToken = signSessionToken(payload);
 
-  if (isDatabaseConfigured && prisma) {
+  if (isDatabaseConfigured && prisma && !user.id.startsWith('local_')) {
     try {
       await prisma.merchantSession.create({
         data: {
@@ -45,6 +45,12 @@ export async function createMerchantSession(
           expiresAt: new Date(expiresAtMs),
         },
       });
+      // Opportunistic non-blocking cleanup of expired sessions
+      void prisma.merchantSession
+        .deleteMany({
+          where: { expiresAt: { lt: new Date() } },
+        })
+        .catch(() => {});
     } catch {
       // Non-blocking if database session table is still migrating
     }
@@ -72,7 +78,12 @@ export async function getSessionUser(): Promise<AuthUser | null> {
     const payload = verifySessionToken(rawToken);
     if (!payload) return null;
 
-    if (isDatabaseConfigured && prisma && rawToken) {
+    if (
+      isDatabaseConfigured &&
+      prisma &&
+      rawToken &&
+      !payload.uid.startsWith('local_')
+    ) {
       try {
         const dbSession = await prisma.merchantSession.findUnique({
           where: { tokenHash: hashToken(rawToken) },
@@ -89,20 +100,27 @@ export async function getSessionUser(): Promise<AuthUser | null> {
           },
         });
 
-        if (dbSession) {
-          if (dbSession.expiresAt.getTime() < Date.now()) {
-            return null;
-          }
-          return {
-            id: dbSession.merchant.id,
-            name: dbSession.merchant.name,
-            email: dbSession.merchant.email,
-            phone: dbSession.merchant.phone ?? undefined,
-            createdAt: dbSession.merchant.createdAt.toISOString(),
-          };
+        // Strictly reject revoked or deleted sessions when DB query succeeds
+        if (!dbSession) {
+          return null;
         }
+
+        if (dbSession.expiresAt.getTime() < Date.now()) {
+          void prisma.merchantSession
+            .delete({ where: { id: dbSession.id } })
+            .catch(() => {});
+          return null;
+        }
+
+        return {
+          id: dbSession.merchant.id,
+          name: dbSession.merchant.name,
+          email: dbSession.merchant.email,
+          phone: dbSession.merchant.phone ?? undefined,
+          createdAt: dbSession.merchant.createdAt.toISOString(),
+        };
       } catch {
-        // Fallback to cryptographically verified HMAC session payload if DB query fails
+        // Fallback to cryptographically verified HMAC session payload ONLY if DB connection transiently fails
       }
     }
 
